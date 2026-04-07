@@ -3,7 +3,6 @@ import { Program, AnchorProvider, Wallet, BN } from '@coral-xyz/anchor';
 import * as anchor from '@coral-xyz/anchor';
 import { getEscrowPDA, getVaultPDA, uuidToBytes, getProgramId, getUsdcMint } from '@/lib/solana/utils';
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token';
-import { Mint, TokenAccount } from '@solana/spl-token';
 
 export interface InitializeEscrowParams {
   invoiceId: string;
@@ -27,11 +26,23 @@ export async function initializeEscrow(params: InitializeEscrowParams): Promise<
   const invoiceBytes = uuidToBytes(invoiceId);
 
   // Derive PDAs
-  const [escrowPDA, escrowBump] = await getEscrowPDA(invoiceBytes, programId);
+  const [escrowPDA] = await getEscrowPDA(invoiceBytes, programId);
   const [vaultPDA] = await getVaultPDA(invoiceBytes, programId);
 
   // Provider for signing
-  const provider = new AnchorProvider(connection, { publicKey: hotWallet.publicKey } as any, {
+  const wallet = {
+    publicKey: hotWallet.publicKey,
+    signTransaction: async (tx: any) => {
+      tx.partialSign(hotWallet);
+      return tx;
+    },
+    signAllTransactions: async (txs: any[]) => {
+      txs.forEach((t) => t.partialSign(hotWallet));
+      return txs;
+    },
+  };
+
+  const provider = new AnchorProvider(connection, wallet as any, {
     commitment: 'confirmed',
   });
 
@@ -40,7 +51,7 @@ export async function initializeEscrow(params: InitializeEscrowParams): Promise<
     const idl = await Program.fetchIdl(programId, provider);
     if (!idl) throw new Error('Failed to fetch program IDL');
 
-    const program = new Program(idl, programId, provider);
+    const program = new Program(idl, provider);
 
     // Calculate decimals and raw amount
     const mintInfo = await connection.getParsedAccountInfo(usdcMint);
@@ -107,10 +118,22 @@ export async function notifyDeposit(
   const programId = getProgramId();
   const invoiceBytes = uuidToBytes(invoiceId);
 
-  const [escrowPDA, escrowBump] = await getEscrowPDA(invoiceBytes, programId);
+  const [escrowPDA] = await getEscrowPDA(invoiceBytes, programId);
   const [vaultPDA] = await getVaultPDA(invoiceBytes, programId);
 
-  const provider = new AnchorProvider(connection, { publicKey: wallet.publicKey } as any, {
+  const keypairWallet = {
+    publicKey: wallet.publicKey,
+    signTransaction: async (tx: any) => {
+      tx.partialSign(wallet);
+      return tx;
+    },
+    signAllTransactions: async (txs: any[]) => {
+      txs.forEach((t) => t.partialSign(wallet));
+      return txs;
+    },
+  };
+
+  const provider = new AnchorProvider(connection, keypairWallet as any, {
     commitment: 'confirmed',
   });
 
@@ -118,7 +141,7 @@ export async function notifyDeposit(
     const idl = await Program.fetchIdl(programId, provider);
     if (!idl) throw new Error('Failed to fetch program IDL');
 
-    const program = new Program(idl, programId, provider);
+    const program = new Program(idl, provider);
 
     const tx = await program.methods
       .depositNotification()
