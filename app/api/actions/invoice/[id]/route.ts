@@ -86,6 +86,27 @@ export async function POST(
       'confirmed'
     );
 
+    // Step 1: Ensure escrow is initialized on-chain
+    try {
+      const initializeUrl = new URL(req.url);
+      initializeUrl.pathname = `/api/invoices/${invoiceId}/initialize`;
+      
+      const initRes = await fetch(initializeUrl.toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      
+      if (!initRes.ok) {
+        const error = await initRes.text();
+        console.warn('Escrow initialization warning:', error);
+        // Don't fail payment request if initialization fails; it may already be initialized
+      }
+    } catch (error) {
+      console.warn('Could not initialize escrow:', error);
+      // Continue anyway; vault may already exist
+    }
+
+    // Step 2: Build the USDC transfer transaction
     const usdcMint = getUsdcMint();
 
     // Derive the vault PDA where funds will be held in escrow
