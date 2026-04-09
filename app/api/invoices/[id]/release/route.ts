@@ -4,8 +4,8 @@ import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOK
 import * as anchor from '@coral-xyz/anchor';
 import { getInvoice, updateInvoiceStatus } from '@/lib/api/invoices';
 import { getEscrowPDA, getVaultPDA, uuidToBytes, getProgramId, getUsdcMint, getTreasuryWallet } from '@/lib/solana/utils';
+import { parseHotWalletKeypair } from '@/lib/solana/hot-wallet';
 import bcrypt from 'bcryptjs';
-import bs58 from 'bs58';
 
 function keypairWallet(kp: Keypair) {
   return {
@@ -19,6 +19,19 @@ function keypairWallet(kp: Keypair) {
       return txs;
     },
   };
+}
+
+function parsePublicKeyOrThrow(value: string, label: string): PublicKey {
+  try {
+    return new PublicKey(value);
+  } catch (err: any) {
+    const cleaned = (value ?? '').trim();
+    const preview =
+      cleaned.length > 12 ? `${cleaned.slice(0, 6)}...${cleaned.slice(-6)}` : cleaned;
+    throw new Error(
+      `Invalid ${label}: "${preview}" (len=${cleaned.length}). ${err?.message ?? String(err)}`
+    );
+  }
 }
 
 export async function POST(
@@ -65,7 +78,7 @@ export async function POST(
 
     let hotWallet: Keypair;
     try {
-      hotWallet = Keypair.fromSecretKey(bs58.decode(hotWalletPrivateKey));
+      hotWallet = parseHotWalletKeypair(hotWalletPrivateKey);
     } catch (err: any) {
       return NextResponse.json(
         { error: `Invalid HOT_WALLET_PRIVATE_KEY: ${err?.message ?? String(err)}` },
@@ -80,8 +93,13 @@ export async function POST(
     );
 
     const programId = getProgramId();
-    const usdcMint = getUsdcMint();
-    const treasuryWallet = getTreasuryWallet();
+    const usdcMintRaw = process.env.NEXT_PUBLIC_USDC_MINT ?? '';
+    const treasuryWalletRaw = process.env.NEXT_PUBLIC_TREASURY_WALLET ?? '';
+    const usdcMint = parsePublicKeyOrThrow(usdcMintRaw, 'NEXT_PUBLIC_USDC_MINT');
+    const treasuryWallet = parsePublicKeyOrThrow(
+      treasuryWalletRaw,
+      'NEXT_PUBLIC_TREASURY_WALLET'
+    );
     const invoiceBytes = uuidToBytes(invoiceId);
 
     // Derive PDAs
@@ -89,7 +107,10 @@ export async function POST(
     const [vaultPDA] = await getVaultPDA(invoiceBytes, programId);
 
     // Get token accounts
-    const freelancerPubkey = new PublicKey(invoice.freelancer_wallet);
+    const freelancerPubkey = parsePublicKeyOrThrow(
+      invoice.freelancer_wallet,
+      `invoice.freelancer_wallet for invoice ${invoiceId}`
+    );
     const freelancerTokenAccount = await getAssociatedTokenAddress(
       usdcMint,
       freelancerPubkey

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import bs58 from 'bs58';
 import { getInvoice } from '@/lib/api/invoices';
 import { initializeEscrow, isEscrowInitialized } from '@/lib/api/contract';
 import { getSupabase } from '@/lib/supabase/client';
+import { parseHotWalletKeypair } from '@/lib/solana/hot-wallet';
 
 /**
  * POST /api/invoices/[id]/prepare
@@ -76,7 +76,7 @@ export async function POST(
       );
     }
 
-    const hotWallet = Keypair.fromSecretKey(bs58.decode(hotWalletPrivateKey));
+    const hotWallet = parseHotWalletKeypair(hotWalletPrivateKey);
 
     // Initialize escrow on-chain
     try {

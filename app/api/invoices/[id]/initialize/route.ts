@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import bs58 from 'bs58';
 import { getInvoice } from '@/lib/api/invoices';
 import { initializeEscrow, isEscrowInitialized } from '@/lib/api/contract';
+import { parseHotWalletKeypair } from '@/lib/solana/hot-wallet';
 
 /**
  * Initialize the escrow for an invoice (backend-driven)
@@ -49,7 +49,7 @@ export async function POST(
       );
     }
 
-    const hotWallet = Keypair.fromSecretKey(bs58.decode(hotWalletPrivateKey));
+    const hotWallet = parseHotWalletKeypair(hotWalletPrivateKey);
 
     // For devnet testing: use hot wallet as client if not specified
     // In production, you'd want a proper client wallet
