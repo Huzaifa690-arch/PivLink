@@ -15,6 +15,12 @@ export interface Invoice {
   status: 'created' | 'funded' | 'released' | 'disputed';
   mode: 'manual' | 'ai';
   release_password_hash?: string;
+  escrow_initialized: boolean;
+  escrow_initialized_at?: string;
+  payment_tx_signature?: string;
+  payment_tx_timestamp?: string;
+  deposit_notification_tx?: string;
   created_at: string;
   updated_at: string;
 }
+

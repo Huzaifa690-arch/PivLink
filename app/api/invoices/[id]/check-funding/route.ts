@@ -46,46 +46,31 @@ export async function GET(
       'confirmed'
     );
 
+    const vaultAccount = await connection.getAccountInfo(vaultPDA);
+    if (!vaultAccount) {
+      return NextResponse.json({
+        status: 'created',
+        balance: 0,
+        message: 'Invoice not yet funded. Escrow vault has not been created yet.',
+      });
+    }
+
     // Get token account balance using Connection method
     const balance = await connection.getTokenAccountBalance(vaultPDA);
 
     // Convert amount to lamports (USDC has 6 decimals)
     const expectedAmount = BigInt(Math.floor(invoice.amount_usdc * 1_000_000));
 
-    if (balance.value.amount >= expectedAmount.toString()) {
-      // When funds are present, call the on-chain deposit_notification
-      const hotWalletPrivateKey = process.env.HOT_WALLET_PRIVATE_KEY;
-      if (!hotWalletPrivateKey) {
-        throw new Error('HOT_WALLET_PRIVATE_KEY is not configured for deposit notification');
-      }
-
-      const hotWallet = Keypair.fromSecretKey(bs58.decode(hotWalletPrivateKey));
-      const wallet = keypairWallet(hotWallet);
-      const provider = new anchor.AnchorProvider(connection, wallet as any, {
-        commitment: 'confirmed',
-      });
-      const idl = await anchor.Program.fetchIdl(programId, provider);
-      if (!idl) {
-        throw new Error('PivLink program IDL not found on-chain. Run anchor idl init/upgrade.');
-      }
-      const program = new anchor.Program(idl, provider);
-
-      const tx = await program.methods
-        .depositNotification()
-        .accounts({
-          escrow: escrowPDA,
-          vault: vaultPDA,
-        })
-        .rpc();
-
-      // Update status to funded only after on-chain success
+    if (BigInt(balance.value.amount) >= expectedAmount) {
+      // If the vault holds enough USDC, consider the invoice funded and update the database.
+      // The payment transaction already includes deposit_notification, so this route should not fail
+      // simply because the server has no hot wallet for an additional notification call.
       await updateInvoiceStatus(invoiceId, 'funded');
 
       return NextResponse.json({
         status: 'funded',
         balance: balance.value.uiAmount,
-        message: 'Invoice is now funded',
-        transaction: tx,
+        message: 'Invoice is now funded.',
       });
     }
 

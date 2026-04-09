@@ -27,8 +27,8 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
               rpcSubscriptions: createSolanaRpcSubscriptions(solanaWsUrl),
             },
             'solana:mainnet': {
-              rpc: createSolanaRpc('https://api.mainnet-beta.solana.com'),
-              rpcSubscriptions: createSolanaRpcSubscriptions('wss://api.mainnet-beta.solana.com'),
+              rpc: createSolanaRpc(solanaRpcUrl),
+              rpcSubscriptions: createSolanaRpcSubscriptions(solanaWsUrl),
             },
           },
         },

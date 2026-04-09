@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { useWallets as useSolanaWallets, useFundWallet, useSignAndSendTransaction } from '@privy-io/react-auth/solana';
+import bs58 from 'bs58';
 import { getInvoice } from '@/lib/api/invoices';
 import type { Invoice } from '@/lib/supabase/types';
 import { Navbar } from '@/components/Navbar';
@@ -137,8 +138,37 @@ export default function PayInvoicePage() {
       const txBytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) txBytes[i] = binary.charCodeAt(i);
 
-      await signAndSendTransaction({ transaction: txBytes, wallet });
+      const txResult = await signAndSendTransaction({ transaction: txBytes, wallet, chain: 'solana:devnet' });
+      
+      const transactionSignature =
+        typeof txResult === 'string' ? txResult :
+        txResult instanceof Uint8Array ? bs58.encode(txResult) :
+        txResult?.signature instanceof Uint8Array ? bs58.encode(txResult.signature) :
+        typeof txResult?.signature === 'string' ? txResult.signature :
+        undefined;
+
+      if (transactionSignature) {
+        try {
+          await fetch(`/api/invoices/${invoiceId}/record-payment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction_signature: transactionSignature }),
+          });
+        } catch (recordError) {
+          console.warn('Failed to record payment signature:', recordError);
+        }
+      } else {
+        console.warn('Could not determine transaction signature from signAndSendTransaction result:', txResult);
+      }
+
       setPaymentModalClosed(true);
+
+      try {
+        await fetch(`/api/invoices/${invoiceId}/check-funding`);
+      } catch (checkError) {
+        console.warn('Funding verification failed:', checkError);
+      }
+
       toast('Payment sent!', 'success');
       router.push(`/pay/${invoiceId}/success`);
     } catch (err: any) {

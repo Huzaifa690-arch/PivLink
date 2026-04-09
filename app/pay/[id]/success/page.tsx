@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { getInvoice } from '@/lib/api/invoices';
+import { getInvoice, checkFundingStatus } from '@/lib/api/invoices';
 import type { Invoice } from '@/lib/supabase/types';
 import { Navbar } from '@/components/Navbar';
 import { useToast } from '@/components/Toast';
@@ -16,7 +16,18 @@ export default function PaymentSuccessPage() {
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
-  useEffect(() => { loadInvoice(); }, [invoiceId]);
+  useEffect(() => {
+    const refreshInvoice = async () => {
+      try {
+        await checkFundingStatus(invoiceId);
+      } catch {
+        // Ignore transient funding verification failures.
+      }
+      await loadInvoice();
+    };
+
+    refreshInvoice();
+  }, [invoiceId]);
 
   const loadInvoice = async () => {
     try {

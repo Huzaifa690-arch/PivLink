@@ -10,7 +10,7 @@
         "start": "next start",
         "lint": "next lint",
         "verify": "node scripts/verify-services.mjs",
-        "db:migrate": "node --env-file=.env scripts/run-supabase-migration.mjs",
+        "db:migrate": "node --env-file=.env.local scripts/run-supabase-migration.mjs",
         "db:migrate:manual": "node scripts/run-supabase-migration-manual.mjs",
         "anchor:build": "anchor build",
         "anchor:deploy": "anchor deploy",

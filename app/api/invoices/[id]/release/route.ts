@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
+import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import * as anchor from '@coral-xyz/anchor';
 import { getInvoice, updateInvoiceStatus } from '@/lib/api/invoices';
 import { getEscrowPDA, getVaultPDA, uuidToBytes, getProgramId, getUsdcMint, getTreasuryWallet } from '@/lib/solana/utils';
@@ -63,7 +63,15 @@ export async function POST(
       );
     }
 
-    const hotWallet = Keypair.fromSecretKey(bs58.decode(hotWalletPrivateKey));
+    let hotWallet: Keypair;
+    try {
+      hotWallet = Keypair.fromSecretKey(bs58.decode(hotWalletPrivateKey));
+    } catch (err: any) {
+      return NextResponse.json(
+        { error: `Invalid HOT_WALLET_PRIVATE_KEY: ${err?.message ?? String(err)}` },
+        { status: 500 }
+      );
+    }
 
     // Setup Solana connection
     const connection = new Connection(
@@ -92,6 +100,31 @@ export async function POST(
       treasuryWallet
     );
 
+    const preInstructions: any[] = [];
+    const freelancerAtaInfo = await connection.getAccountInfo(freelancerTokenAccount);
+    if (!freelancerAtaInfo) {
+      preInstructions.push(
+        createAssociatedTokenAccountInstruction(
+          hotWallet.publicKey,
+          freelancerTokenAccount,
+          freelancerPubkey,
+          usdcMint
+        )
+      );
+    }
+
+    const treasuryAtaInfo = await connection.getAccountInfo(treasuryTokenAccount);
+    if (!treasuryAtaInfo) {
+      preInstructions.push(
+        createAssociatedTokenAccountInstruction(
+          hotWallet.publicKey,
+          treasuryTokenAccount,
+          treasuryWallet,
+          usdcMint
+        )
+      );
+    }
+
     // Call the on-chain release instruction via Anchor
     const wallet = keypairWallet(hotWallet);
     const provider = new anchor.AnchorProvider(connection, wallet as any, {
@@ -112,8 +145,10 @@ export async function POST(
         treasuryToken: treasuryTokenAccount,
         usdcMint,
         freelancer: freelancerPubkey,
+        client: hotWallet.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
+      .preInstructions(preInstructions)
       .rpc();
 
     // Mark invoice as released only after on-chain success
@@ -125,9 +160,15 @@ export async function POST(
       transaction: tx,
     });
   } catch (error: any) {
-    console.error('Error releasing funds:', error);
+    const errorMessage = error?.message || String(error) || 'Unknown error';
+    const errorStack = error?.stack || '';
+    console.error('Error releasing funds:', {
+      message: errorMessage,
+      stack: errorStack,
+      error: error,
+    });
     return NextResponse.json(
-      { error: error.message || 'Failed to release funds' },
+      { error: errorMessage },
       { status: 500 }
     );
   }
