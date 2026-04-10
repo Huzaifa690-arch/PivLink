@@ -16,7 +16,10 @@ pub struct Escrow {
     pub client_approved: bool,
     /// Explicit consent from freelancer to release escrow.
     pub freelancer_approved: bool,
-    pub bump: u8,
+    /// PDA bump for escrow seeds: ["pivlink", invoice_id]
+    pub escrow_bump: u8,
+    /// PDA bump for vault seeds: ["vault", invoice_id]
+    pub vault_bump: u8,
 }
 
 impl Escrow {
@@ -31,7 +34,8 @@ impl Escrow {
         8  + // deadline
         1  + // client_approved
         1  + // freelancer_approved
-        1;  // bump
+        1  + // escrow_bump
+        1;  // vault_bump
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]

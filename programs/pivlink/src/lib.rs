@@ -40,7 +40,8 @@ pub mod pivlink {
         escrow.deadline = deadline;
         escrow.client_approved = false;
         escrow.freelancer_approved = false;
-        escrow.bump = ctx.bumps.escrow;
+        escrow.escrow_bump = ctx.bumps.escrow;
+        escrow.vault_bump = ctx.bumps.vault;
 
         Ok(())
     }
@@ -101,7 +102,8 @@ pub mod pivlink {
                 .checked_sub(fee)
                 .ok_or(EscrowError::InvalidAmount)?;
 
-            let signer_seeds: &[&[&[u8]]] = &[&[b"pivlink", &escrow.invoice_id, &[escrow.bump]]];
+            let signer_seeds: &[&[&[u8]]] =
+                &[&[b"pivlink", &escrow.invoice_id, &[escrow.escrow_bump]]];
 
             token::transfer(ctx.accounts.transfer_fee_ctx().with_signer(signer_seeds), fee)?;
             token::transfer(
@@ -163,7 +165,7 @@ pub struct DepositNotification<'info> {
     #[account(
         mut,
         seeds = [b"vault", &escrow.invoice_id],
-        bump = escrow.bump
+        bump = escrow.vault_bump
     )]
     pub vault: Account<'info, TokenAccount>,
 }
@@ -176,7 +178,7 @@ pub struct Release<'info> {
     #[account(
         mut,
         seeds = [b"vault", &escrow.invoice_id],
-        bump = escrow.bump
+        bump = escrow.vault_bump
     )]
     pub vault: Account<'info, TokenAccount>,
 
