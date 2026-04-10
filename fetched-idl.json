@@ -1,0 +1,359 @@
+{
+  "accounts": [
+    {
+      "discriminator": [
+        31,
+        213,
+        123,
+        187,
+        186,
+        22,
+        218,
+        155
+      ],
+      "name": "Escrow"
+    }
+  ],
+  "address": "CrkwL2RAcGE7e3zoeHa1b1pNLbXX9B6X1kTcMJTd27BJ",
+  "errors": [
+    {
+      "code": 6000,
+      "msg": "Invalid escrow state",
+      "name": "InvalidState"
+    },
+    {
+      "code": 6001,
+      "msg": "Vault does not contain required funds",
+      "name": "InsufficientFunds"
+    },
+    {
+      "code": 6002,
+      "msg": "Invalid USDC mint address",
+      "name": "InvalidMint"
+    },
+    {
+      "code": 6003,
+      "msg": "Amount must be greater than zero",
+      "name": "InvalidAmount"
+    },
+    {
+      "code": 6004,
+      "msg": "Deadline must be in the future",
+      "name": "InvalidDeadline"
+    },
+    {
+      "code": 6005,
+      "msg": "Unauthorized",
+      "name": "Unauthorized"
+    },
+    {
+      "code": 6006,
+      "msg": "Both client and freelancer approvals are required",
+      "name": "MissingApprovals"
+    }
+  ],
+  "instructions": [
+    {
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "client",
+          "signer": true
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        148,
+        255,
+        183,
+        4,
+        208,
+        137,
+        194,
+        3
+      ],
+      "name": "approve_client"
+    },
+    {
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "freelancer",
+          "signer": true
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        88,
+        85,
+        59,
+        239,
+        184,
+        126,
+        76,
+        184
+      ],
+      "name": "approve_freelancer"
+    },
+    {
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        131,
+        94,
+        231,
+        113,
+        214,
+        23,
+        36,
+        100
+      ],
+      "name": "deposit_notification"
+    },
+    {
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "arbitrator",
+          "signer": true,
+          "writable": true
+        },
+        {
+          "name": "freelancer"
+        },
+        {
+          "name": "system_program"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "rent"
+        }
+      ],
+      "args": [
+        {
+          "name": "invoice_id",
+          "type": {
+            "array": [
+              "u8",
+              16
+            ]
+          }
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "freelancer",
+          "type": "pubkey"
+        },
+        {
+          "name": "client",
+          "type": "pubkey"
+        },
+        {
+          "name": "deadline",
+          "type": "i64"
+        },
+        {
+          "name": "platform_fee_bps",
+          "type": "u16"
+        }
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "docs": [
+        "Initialize a new escrow vault for an invoice"
+      ],
+      "name": "initialize"
+    },
+    {
+      "accounts": [
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "freelancer_token",
+          "writable": true
+        },
+        {
+          "name": "treasury_token",
+          "writable": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "freelancer",
+          "writable": true
+        },
+        {
+          "docs": [
+            "Relayer signer can execute release once both approvals exist."
+          ],
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [],
+      "discriminator": [
+        253,
+        249,
+        15,
+        206,
+        28,
+        127,
+        193,
+        241
+      ],
+      "name": "release"
+    }
+  ],
+  "metadata": {
+    "description": "PivLink Escrow Smart Contract",
+    "name": "pivlink",
+    "spec": "0.1.0",
+    "version": "0.1.0"
+  },
+  "types": [
+    {
+      "name": "Escrow",
+      "type": {
+        "fields": [
+          {
+            "name": "invoice_id",
+            "type": {
+              "array": [
+                "u8",
+                16
+              ]
+            }
+          },
+          {
+            "name": "freelancer",
+            "type": "pubkey"
+          },
+          {
+            "name": "client",
+            "type": "pubkey"
+          },
+          {
+            "name": "arbitrator",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "docs": [
+              "Platform fee in basis points (1% = 100 bps)"
+            ],
+            "name": "platform_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "EscrowState"
+              }
+            }
+          },
+          {
+            "docs": [
+              "Unix timestamp (seconds) after which funds can be auto-released"
+            ],
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "docs": [
+              "Explicit consent from client to release escrow."
+            ],
+            "name": "client_approved",
+            "type": "bool"
+          },
+          {
+            "docs": [
+              "Explicit consent from freelancer to release escrow."
+            ],
+            "name": "freelancer_approved",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ],
+        "kind": "struct"
+      }
+    },
+    {
+      "name": "EscrowState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "AwaitingFunds"
+          },
+          {
+            "name": "Funded"
+          },
+          {
+            "name": "Released"
+          },
+          {
+            "name": "Refunded"
+          },
+          {
+            "name": "Disputed"
+          }
+        ]
+      }
+    }
+  ]
+}
