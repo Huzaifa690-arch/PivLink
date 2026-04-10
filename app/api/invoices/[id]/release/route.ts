@@ -166,7 +166,7 @@ export async function POST(
         treasuryToken: treasuryTokenAccount,
         usdcMint,
         freelancer: freelancerPubkey,
-        client: hotWallet.publicKey,
+        authority: hotWallet.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .preInstructions(preInstructions)

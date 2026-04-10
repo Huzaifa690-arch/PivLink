@@ -104,6 +104,7 @@ export async function POST(
         const initRes = await fetch(initializeUrl.toString(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientWallet: payer.toBase58() }),
         });
 
         if (!initRes.ok) {

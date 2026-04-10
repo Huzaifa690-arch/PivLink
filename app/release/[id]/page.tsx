@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
+import bs58 from 'bs58';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { useWallets as useSolanaWallets, useSignAndSendTransaction } from '@privy-io/react-auth/solana';
 import { getInvoice } from '@/lib/api/invoices';
 import type { Invoice } from '@/lib/supabase/types';
 import { Navbar } from '@/components/Navbar';
@@ -13,14 +16,44 @@ export default function ReleaseFundsPage() {
   const params = useParams();
   const router = useRouter();
   const invoiceId = params.id as string;
+  const { authenticated, ready } = usePrivy();
+  const { wallets: mainWallets } = useWallets();
+  const { wallets: solanaWallets, ready: solanaWalletsReady } = useSolanaWallets();
+  const { signAndSendTransaction } = useSignAndSendTransaction();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
   const [releasing, setReleasing] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [approvalLoading, setApprovalLoading] = useState(true);
+  const [clientApproved, setClientApproved] = useState(false);
+  const [freelancerApproved, setFreelancerApproved] = useState(false);
+  const [approvingRole, setApprovingRole] = useState<'client' | 'freelancer' | null>(null);
+  const [fundingWallet, setFundingWallet] = useState<any>(null);
   const { toast } = useToast();
 
-  useEffect(() => { loadInvoice(); }, [invoiceId]);
+  useEffect(() => {
+    if (ready && !authenticated) {
+      router.push('/login');
+      return;
+    }
+    loadInvoice();
+    loadApprovalStatus();
+  }, [invoiceId, ready, authenticated, router]);
+
+  useEffect(() => {
+    if (solanaWalletsReady && solanaWallets?.length > 0) {
+      setFundingWallet(solanaWallets[0]);
+      return;
+    }
+    const solanaFromMain = mainWallets.find((w: { type?: string; chainId?: string; walletClientType?: string }) => {
+      if ((w as { type?: string }).type === 'solana') return true;
+      const wt = w.walletClientType ?? '';
+      if (wt !== 'privy' && wt !== 'privy-v2') return false;
+      return (w.chainId ?? '').toLowerCase().startsWith('solana:');
+    });
+    if (solanaFromMain) setFundingWallet(solanaFromMain);
+  }, [solanaWalletsReady, solanaWallets, mainWallets]);
 
   const loadInvoice = async () => {
     try {
@@ -33,9 +66,76 @@ export default function ReleaseFundsPage() {
     }
   };
 
+  const loadApprovalStatus = async () => {
+    setApprovalLoading(true);
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}/approval-status`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to load approval status');
+      setClientApproved(Boolean(data.clientApproved));
+      setFreelancerApproved(Boolean(data.freelancerApproved));
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load approval status');
+    } finally {
+      setApprovalLoading(false);
+    }
+  };
+
+  const submitApproval = async (role: 'client' | 'freelancer') => {
+    const wallet = fundingWallet ?? solanaWallets?.[0];
+    const walletAddress = wallet?.address;
+    if (!wallet || !walletAddress) {
+      toast('Connect your Solana wallet first.', 'warning');
+      return;
+    }
+
+    setApprovingRole(role);
+    setError('');
+    try {
+      const actionPath = role === 'client' ? 'approve-client' : 'approve-freelancer';
+      const res = await fetch(`/api/actions/invoice/${invoiceId}/${actionPath}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: walletAddress }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || data?.error || 'Failed to prepare approval transaction');
+
+      const txBase64 = data?.transaction;
+      if (!txBase64 || typeof txBase64 !== 'string') throw new Error('No transaction in response');
+
+      const binary = atob(txBase64);
+      const txBytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) txBytes[i] = binary.charCodeAt(i);
+
+      const txResult = await signAndSendTransaction({
+        transaction: txBytes,
+        wallet,
+        chain: process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet' ? 'solana:mainnet' : 'solana:devnet',
+      });
+
+      const sig =
+        typeof txResult === 'string' ? txResult :
+        txResult instanceof Uint8Array ? bs58.encode(txResult) :
+        txResult?.signature instanceof Uint8Array ? bs58.encode(txResult.signature) :
+        typeof txResult?.signature === 'string' ? txResult.signature :
+        'submitted';
+      toast(`${role === 'client' ? 'Client' : 'Freelancer'} approval sent (${sig.slice(0, 10)}...)`, 'success');
+      await loadApprovalStatus();
+    } catch (err: any) {
+      setError(err?.message || 'Failed to submit approval');
+    } finally {
+      setApprovingRole(null);
+    }
+  };
+
   const handleRelease = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!password) { setError('Please enter the release password'); return; }
+    if (!clientApproved || !freelancerApproved) {
+      setError('Both client and freelancer must approve on-chain before release.');
+      return;
+    }
 
     setReleasing(true);
     setError('');
@@ -64,6 +164,17 @@ export default function ReleaseFundsPage() {
   };
 
   if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!ready) {
     return (
       <div className="min-h-screen flex flex-col">
         <Navbar />
@@ -182,6 +293,44 @@ export default function ReleaseFundsPage() {
                   Funded — In Escrow
                 </span>
               </div>
+            </div>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-slate-700">Two-party approvals</p>
+                {approvalLoading ? (
+                  <span className="text-xs text-slate-400">Loading...</span>
+                ) : (
+                  <span className={`text-xs font-semibold ${clientApproved && freelancerApproved ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {clientApproved && freelancerApproved ? 'Ready to release' : 'Waiting for approvals'}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => submitApproval('client')}
+                  disabled={approvalLoading || Boolean(approvingRole)}
+                  className={`rounded-xl border px-4 py-3 text-sm font-semibold transition-colors ${
+                    clientApproved ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  } disabled:opacity-50`}
+                >
+                  {clientApproved ? 'Client approved' : approvingRole === 'client' ? 'Approving client...' : 'Approve as client'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => submitApproval('freelancer')}
+                  disabled={approvalLoading || Boolean(approvingRole)}
+                  className={`rounded-xl border px-4 py-3 text-sm font-semibold transition-colors ${
+                    freelancerApproved ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  } disabled:opacity-50`}
+                >
+                  {freelancerApproved ? 'Freelancer approved' : approvingRole === 'freelancer' ? 'Approving freelancer...' : 'Approve as freelancer'}
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mt-3">
+                Each party must sign once with their own wallet before release can execute.
+              </p>
             </div>
 
             <form onSubmit={handleRelease} className="space-y-5">

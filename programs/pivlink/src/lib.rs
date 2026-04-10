@@ -19,6 +19,7 @@ pub mod pivlink {
         ctx: Context<Initialize>,
         invoice_id: [u8; 16],
         amount: u64,
+        freelancer: Pubkey,
         client: Pubkey,
         deadline: i64,
         platform_fee_bps: u16,
@@ -34,13 +35,15 @@ pub mod pivlink {
         );
 
         escrow.invoice_id = invoice_id;
-        escrow.freelancer = ctx.accounts.freelancer.key();
+        escrow.freelancer = freelancer;
         escrow.client = client;
         escrow.arbitrator = ctx.accounts.arbitrator.key();
         escrow.amount = amount;
         escrow.platform_fee_bps = platform_fee_bps;
         escrow.state = EscrowState::AwaitingFunds;
         escrow.deadline = deadline;
+        escrow.client_approved = false;
+        escrow.freelancer_approved = false;
         escrow.bump = ctx.bumps.escrow;
 
         msg!("Escrow initialized for invoice: {:?}", invoice_id);
@@ -69,14 +72,50 @@ pub mod pivlink {
 
         let escrow_mut = &mut ctx.accounts.escrow;
         escrow_mut.state = EscrowState::Funded;
+        escrow_mut.client_approved = false;
+        escrow_mut.freelancer_approved = false;
 
         msg!("Escrow funded. Balance: {}", vault_balance);
 
         Ok(())
     }
 
+    /// Client confirms approval to release funds.
+    pub fn approve_client(ctx: Context<ApproveClient>) -> Result<()> {
+        let escrow = &mut ctx.accounts.escrow;
+        require!(
+            escrow.state == EscrowState::Funded,
+            EscrowError::InvalidState
+        );
+        require_keys_eq!(
+            ctx.accounts.client.key(),
+            escrow.client,
+            EscrowError::Unauthorized
+        );
+        escrow.client_approved = true;
+        msg!("Client approval recorded");
+        Ok(())
+    }
+
+    /// Freelancer confirms approval to release funds.
+    pub fn approve_freelancer(ctx: Context<ApproveFreelancer>) -> Result<()> {
+        let escrow = &mut ctx.accounts.escrow;
+        require!(
+            escrow.state == EscrowState::Funded,
+            EscrowError::InvalidState
+        );
+        require_keys_eq!(
+            ctx.accounts.freelancer.key(),
+            escrow.freelancer,
+            EscrowError::Unauthorized
+        );
+        escrow.freelancer_approved = true;
+        msg!("Freelancer approval recorded");
+        Ok(())
+    }
+
     /// Release funds from escrow
-    /// Called by: Client (must match `escrow.client`)
+    /// Callable by: any relayer signer after both parties have approved.
     /// Transfers payout to freelancer, fee to treasury, then closes vault
     pub fn release(ctx: Context<Release>) -> Result<()> {
         // First, use an immutable borrow for checks and CPIs
@@ -88,11 +127,9 @@ pub mod pivlink {
                 EscrowError::InvalidState
             );
 
-            // Only the client associated with this escrow can release funds
-            require_keys_eq!(
-                ctx.accounts.client.key(),
-                escrow.client,
-                EscrowError::Unauthorized
+            require!(
+                escrow.client_approved && escrow.freelancer_approved,
+                EscrowError::MissingApprovals
             );
 
             // Verify USDC mint matches
@@ -181,10 +218,11 @@ pub struct Initialize<'info> {
     pub usdc_mint: Account<'info, Mint>,
 
     /// CHECK: Platform / arbitrator authority (stored in escrow)
-    pub arbitrator: AccountInfo<'info>,
-
     #[account(mut)]
-    pub freelancer: Signer<'info>,
+    pub arbitrator: Signer<'info>,
+
+    /// CHECK: Freelancer wallet address stored in escrow state.
+    pub freelancer: AccountInfo<'info>,
 
     pub system_program: Program<'info, System>,
     pub token_program: Program<'info, Token>,
@@ -229,10 +267,24 @@ pub struct Release<'info> {
     #[account(mut)]
     pub freelancer: AccountInfo<'info>,
 
-    /// Client must sign to authorize release
-    pub client: Signer<'info>,
+    /// Relayer signer can execute release once both approvals exist.
+    pub authority: Signer<'info>,
 
     pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct ApproveClient<'info> {
+    #[account(mut)]
+    pub escrow: Account<'info, Escrow>,
+    pub client: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ApproveFreelancer<'info> {
+    #[account(mut)]
+    pub escrow: Account<'info, Escrow>,
+    pub freelancer: Signer<'info>,
 }
 
 impl<'info> Release<'info> {

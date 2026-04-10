@@ -15,6 +15,7 @@ export async function POST(
 ) {
   try {
     const invoiceId = params.id;
+    const body = await request.json().catch(() => ({}));
 
     // Fetch invoice from database
     const invoice = await getInvoice(invoiceId);
@@ -51,14 +52,11 @@ export async function POST(
 
     const hotWallet = parseHotWalletKeypair(hotWalletPrivateKey);
 
-    // For devnet testing: use hot wallet as client if not specified
-    // In production, you'd want a proper client wallet
     let clientWallet: PublicKey;
-    if (invoice.client_name) {
-      // If client name exists but no wallet specified, use a placeholder
-      // In production, you'd need to derive or store client wallets
-      clientWallet = hotWallet.publicKey;
+    if (typeof body?.clientWallet === 'string' && body.clientWallet.trim()) {
+      clientWallet = new PublicKey(body.clientWallet.trim());
     } else {
+      // Fallback for legacy flow where client wallet is unknown.
       clientWallet = hotWallet.publicKey;
     }
 

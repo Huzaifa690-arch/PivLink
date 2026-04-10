@@ -66,6 +66,7 @@ export async function initializeEscrow(params: InitializeEscrowParams): Promise<
       .initialize(
         invoiceBytes,
         amountRaw,
+        freelancerWallet,
         clientWallet, // client
         deadline,
         500 // 5% platform fee
@@ -75,7 +76,7 @@ export async function initializeEscrow(params: InitializeEscrowParams): Promise<
         vault: vaultPDA,
         usdcMint: usdcMint,
         arbitrator: hotWallet.publicKey, // Backend is the arbitrator
-        freelancer: hotWallet.publicKey, // Freelancer signer (backend uses hot wallet)
+        freelancer: freelancerWallet,
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,

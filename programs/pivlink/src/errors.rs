@@ -19,4 +19,7 @@ pub enum EscrowError {
 
     #[msg("Unauthorized")]
     Unauthorized,
+
+    #[msg("Both client and freelancer approvals are required")]
+    MissingApprovals,
 }
