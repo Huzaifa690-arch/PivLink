@@ -72,6 +72,23 @@ export async function POST(
     const idl = await Program.fetchIdl(programId, provider);
     if (!idl) throw new Error('Failed to fetch program IDL');
     const program = new Program(idl as any, provider as any);
+    const escrow = await (program.account as any).escrow.fetch(escrowPDA);
+    const expectedFreelancer = escrow?.freelancer?.toBase58?.();
+    const signerBase58 = signer.toBase58();
+    if (!expectedFreelancer) {
+      const actionError: ActionError = { message: 'Could not read freelancer wallet from escrow account' };
+      return Response.json(actionError, { status: 400, headers });
+    }
+    if (expectedFreelancer !== signerBase58) {
+      const actionError: ActionError = {
+        message: `Wrong wallet for freelancer approval. Connected: ${signerBase58}. Expected freelancer: ${expectedFreelancer}.`,
+      };
+      return Response.json(actionError, { status: 403, headers });
+    }
+    if (escrow?.freelancerApproved) {
+      const actionError: ActionError = { message: 'Freelancer is already approved for this escrow.' };
+      return Response.json(actionError, { status: 400, headers });
+    }
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
     const tx = new Transaction({

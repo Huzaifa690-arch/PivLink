@@ -12,6 +12,30 @@ import type { Invoice } from '@/lib/supabase/types';
 import { Navbar } from '@/components/Navbar';
 import { useToast } from '@/components/Toast';
 
+function pickPreferredSolanaWallet(wallets: any[] = []) {
+  if (!wallets.length) return null;
+  const embedded = wallets.find((w: any) => {
+    const wt = String(w?.walletClientType ?? '').toLowerCase();
+    return wt === 'privy' || wt === 'privy-v2' || wt.includes('embedded');
+  });
+  return embedded ?? wallets[0];
+}
+
+function getSolanaChainForClientTx(): 'solana:mainnet' | 'solana:devnet' {
+  const rpc = (process.env.NEXT_PUBLIC_SOLANA_RPC_URL || '').toLowerCase();
+  if (rpc.includes('mainnet')) return 'solana:mainnet';
+  if (rpc.includes('devnet')) return 'solana:devnet';
+  return process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet' ? 'solana:mainnet' : 'solana:devnet';
+}
+
+function getChainForWallet(wallet: any): 'solana:mainnet' | 'solana:devnet' {
+  const chainId = String(wallet?.chainId ?? '').toLowerCase();
+  if (chainId === 'solana:mainnet' || chainId === 'solana:devnet') {
+    return chainId;
+  }
+  return getSolanaChainForClientTx();
+}
+
 export default function ReleaseFundsPage() {
   const params = useParams();
   const router = useRouter();
@@ -28,9 +52,22 @@ export default function ReleaseFundsPage() {
   const [approvalLoading, setApprovalLoading] = useState(true);
   const [clientApproved, setClientApproved] = useState(false);
   const [freelancerApproved, setFreelancerApproved] = useState(false);
+  const [expectedClientWallet, setExpectedClientWallet] = useState<string | null>(null);
+  const [expectedFreelancerWallet, setExpectedFreelancerWallet] = useState<string | null>(null);
   const [approvingRole, setApprovingRole] = useState<'client' | 'freelancer' | null>(null);
+  const [reconnectingWallet, setReconnectingWallet] = useState(false);
   const [fundingWallet, setFundingWallet] = useState<any>(null);
   const { toast } = useToast();
+  const connectedWalletAddress = fundingWallet?.address ?? solanaWallets?.[0]?.address ?? null;
+  const normalizedConnected = connectedWalletAddress?.toLowerCase() ?? null;
+  const isClientWallet =
+    normalizedConnected !== null &&
+    expectedClientWallet !== null &&
+    normalizedConnected === expectedClientWallet.toLowerCase();
+  const isFreelancerWallet =
+    normalizedConnected !== null &&
+    expectedFreelancerWallet !== null &&
+    normalizedConnected === expectedFreelancerWallet.toLowerCase();
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -43,7 +80,7 @@ export default function ReleaseFundsPage() {
 
   useEffect(() => {
     if (solanaWalletsReady && solanaWallets?.length > 0) {
-      setFundingWallet(solanaWallets[0]);
+      setFundingWallet(pickPreferredSolanaWallet(solanaWallets));
       return;
     }
     const solanaFromMain = mainWallets.find((w: { type?: string; chainId?: string; walletClientType?: string }) => {
@@ -74,6 +111,8 @@ export default function ReleaseFundsPage() {
       if (!res.ok) throw new Error(data?.error || 'Failed to load approval status');
       setClientApproved(Boolean(data.clientApproved));
       setFreelancerApproved(Boolean(data.freelancerApproved));
+      setExpectedClientWallet(typeof data.client === 'string' ? data.client : null);
+      setExpectedFreelancerWallet(typeof data.freelancer === 'string' ? data.freelancer : null);
     } catch (e: any) {
       setError(e?.message || 'Failed to load approval status');
     } finally {
@@ -82,16 +121,52 @@ export default function ReleaseFundsPage() {
   };
 
   const submitApproval = async (role: 'client' | 'freelancer') => {
-    const wallet = fundingWallet ?? solanaWallets?.[0];
+    const preferredAddress = fundingWallet?.address;
+    const wallet =
+      (preferredAddress
+        ? solanaWallets?.find((w: any) => w?.address === preferredAddress)
+        : null) ??
+      pickPreferredSolanaWallet(solanaWallets) ??
+      fundingWallet;
     const walletAddress = wallet?.address;
     if (!wallet || !walletAddress) {
       toast('Connect your Solana wallet first.', 'warning');
+      return;
+    }
+    if (role === 'client' && !isClientWallet) {
+      setError('This connected wallet is not the client wallet for this escrow. Switch to the client wallet to approve.');
+      return;
+    }
+    if (role === 'freelancer' && !isFreelancerWallet) {
+      setError('This connected wallet is not the freelancer wallet for this escrow. Switch to the freelancer wallet to approve.');
       return;
     }
 
     setApprovingRole(role);
     setError('');
     try {
+      if (typeof wallet.connect === 'function') {
+        try {
+          await wallet.connect();
+        } catch (connectErr: any) {
+          throw new Error(connectErr?.message || 'Wallet connection failed. Please reconnect your wallet.');
+        }
+      }
+      if (wallet?.connected === false) {
+        throw new Error('Wallet is not connected. Click "Reconnect wallet" and try again.');
+      }
+      // Approvals are signer-paid txs. On devnet, embedded wallets often have 0 SOL.
+      const balanceRes = await fetch(`/api/wallet/balance?address=${encodeURIComponent(walletAddress)}`, {
+        cache: 'no-store',
+      });
+      if (balanceRes.ok) {
+        const balanceData = await balanceRes.json();
+        const sol = Number(balanceData?.sol ?? 0);
+        if (Number.isFinite(sol) && sol < 0.00001) {
+          throw new Error('Insufficient SOL for transaction fee. Fund this wallet with a small amount of SOL and retry.');
+        }
+      }
+
       const actionPath = role === 'client' ? 'approve-client' : 'approve-freelancer';
       const res = await fetch(`/api/actions/invoice/${invoiceId}/${actionPath}`, {
         method: 'POST',
@@ -111,7 +186,7 @@ export default function ReleaseFundsPage() {
       const txResult = await signAndSendTransaction({
         transaction: txBytes,
         wallet,
-        chain: process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet' ? 'solana:mainnet' : 'solana:devnet',
+        chain: getChainForWallet(wallet),
       });
 
       const sig =
@@ -123,9 +198,33 @@ export default function ReleaseFundsPage() {
       toast(`${role === 'client' ? 'Client' : 'Freelancer'} approval sent (${sig.slice(0, 10)}...)`, 'success');
       await loadApprovalStatus();
     } catch (err: any) {
-      setError(err?.message || 'Failed to submit approval');
+      const message = err?.message || 'Failed to submit approval';
+      if (message.includes('7050003') || message.includes('-32002')) {
+        setError('Wallet session failed before broadcast. Reconnect wallet, then retry approval. If it persists, sign out/in and try again.');
+      } else {
+        setError(message);
+      }
     } finally {
       setApprovingRole(null);
+    }
+  };
+
+  const handleReconnectWallet = async () => {
+    const wallet = pickPreferredSolanaWallet(solanaWallets) ?? fundingWallet;
+    if (!wallet || typeof wallet.connect !== 'function') {
+      setError('No reconnectable Solana wallet found. Please sign out and sign in again.');
+      return;
+    }
+    setReconnectingWallet(true);
+    setError('');
+    try {
+      await wallet.connect();
+      setFundingWallet(wallet);
+      toast('Wallet reconnected.', 'success');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to reconnect wallet. Please sign out and sign in again.');
+    } finally {
+      setReconnectingWallet(false);
     }
   };
 
@@ -148,9 +247,15 @@ export default function ReleaseFundsPage() {
         body: JSON.stringify({ password }),
       });
 
+      const data = await response.json();
       if (!response.ok) {
-        const data = await response.json();
         throw new Error(data.error || data.message || 'Failed to release funds');
+      }
+
+      if (data?.debug) {
+        toast('Release debug mode is enabled: validation passed, but funds were not released on-chain.', 'warning');
+        await loadInvoice();
+        return;
       }
 
       toast('Funds released successfully! 🎉', 'success');
@@ -310,7 +415,7 @@ export default function ReleaseFundsPage() {
                 <button
                   type="button"
                   onClick={() => submitApproval('client')}
-                  disabled={approvalLoading || Boolean(approvingRole)}
+                  disabled={approvalLoading || Boolean(approvingRole) || !isClientWallet}
                   className={`rounded-xl border px-4 py-3 text-sm font-semibold transition-colors ${
                     clientApproved ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   } disabled:opacity-50`}
@@ -320,7 +425,7 @@ export default function ReleaseFundsPage() {
                 <button
                   type="button"
                   onClick={() => submitApproval('freelancer')}
-                  disabled={approvalLoading || Boolean(approvingRole)}
+                  disabled={approvalLoading || Boolean(approvingRole) || !isFreelancerWallet}
                   className={`rounded-xl border px-4 py-3 text-sm font-semibold transition-colors ${
                     freelancerApproved ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                   } disabled:opacity-50`}
@@ -331,6 +436,24 @@ export default function ReleaseFundsPage() {
               <p className="text-xs text-slate-500 mt-3">
                 Each party must sign once with their own wallet before release can execute.
               </p>
+              <button
+                type="button"
+                onClick={handleReconnectWallet}
+                disabled={reconnectingWallet}
+                className="mt-3 text-xs font-medium text-primary hover:underline disabled:opacity-50"
+              >
+                {reconnectingWallet ? 'Reconnecting wallet...' : 'Reconnect wallet'}
+              </button>
+              {connectedWalletAddress && (
+                <p className="text-xs text-slate-500 mt-2 break-all">
+                  Connected wallet: {connectedWalletAddress}
+                </p>
+              )}
+              {!approvalLoading && connectedWalletAddress && !isClientWallet && !isFreelancerWallet && (
+                <p className="text-xs text-amber-700 mt-2">
+                  This wallet is not part of this escrow. Switch to the saved client or freelancer wallet to approve.
+                </p>
+              )}
             </div>
 
             <form onSubmit={handleRelease} className="space-y-5">

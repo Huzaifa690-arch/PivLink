@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
 import { useSolanaAddress } from '@/lib/privy';
@@ -27,41 +27,60 @@ function WalletWithPrivy() {
   const [loadingBalance, setLoadingBalance] = useState(true);
   const [loadingReceived, setLoadingReceived] = useState(true);
 
-  useEffect(() => {
+  const loadWalletData = useCallback(async () => {
     if (!walletAddress) {
       setLoadingBalance(false);
       setLoadingReceived(false);
       return;
     }
-    let cancelled = false;
 
-    (async () => {
-      try {
-        const [balanceRes, invoicesRes] = await Promise.all([
-          fetch(`/api/wallet/balance?address=${encodeURIComponent(walletAddress)}`),
-          fetch(`/api/wallet/invoices?wallet=${encodeURIComponent(walletAddress)}`),
-        ]);
-        if (cancelled) return;
-        if (balanceRes.ok) {
-          const data = await balanceRes.json();
-          setBalance({ sol: data.sol, usdc: data.usdc });
-        }
-        if (invoicesRes.ok) {
-          const data = await invoicesRes.json();
-          setReceived(data.invoices ?? []);
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) {
-          setLoadingBalance(false);
-          setLoadingReceived(false);
-        }
+    try {
+      const [balanceRes, invoicesRes] = await Promise.all([
+        fetch(`/api/wallet/balance?address=${encodeURIComponent(walletAddress)}`, { cache: 'no-store' }),
+        fetch(`/api/wallet/invoices?wallet=${encodeURIComponent(walletAddress)}`, { cache: 'no-store' }),
+      ]);
+      if (balanceRes.ok) {
+        const data = await balanceRes.json();
+        setBalance({ sol: data.sol, usdc: data.usdc });
       }
-    })();
+      if (invoicesRes.ok) {
+        const data = await invoicesRes.json();
+        setReceived(data.invoices ?? []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingBalance(false);
+      setLoadingReceived(false);
+    }
+  }, [walletAddress]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      await loadWalletData();
+      if (cancelled) return;
+    };
+    run();
 
     return () => { cancelled = true; };
-  }, [walletAddress]);
+  }, [loadWalletData]);
+
+  useEffect(() => {
+    if (!walletAddress) return;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void loadWalletData();
+    };
+    const handleFocus = () => void loadWalletData();
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [walletAddress, loadWalletData]);
 
   const copyAddress = () => {
     if (!walletAddress) return;

@@ -102,6 +102,27 @@ export async function POST(
     );
     const invoiceBytes = uuidToBytes(invoiceId);
 
+    // Debug-only escape hatch:
+    // when enabled, stop after password + base58 validation and do not touch on-chain release.
+    const bypassApprovalChecks =
+      process.env.BYPASS_RELEASE_APPROVALS_FOR_DEBUG === 'true';
+    if (bypassApprovalChecks) {
+      return NextResponse.json({
+        success: true,
+        debug: true,
+        message:
+          'Release debug mode enabled: password/base58 validation passed; on-chain release skipped.',
+        validated: {
+          invoiceId,
+          freelancerWallet: invoice.freelancer_wallet,
+          usdcMint: usdcMint.toBase58(),
+          treasuryWallet: treasuryWallet.toBase58(),
+          rpcUrl:
+            process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+        },
+      });
+    }
+
     // Derive PDAs
     const [escrowPDA] = await getEscrowPDA(invoiceBytes, programId);
     const [vaultPDA] = await getVaultPDA(invoiceBytes, programId);

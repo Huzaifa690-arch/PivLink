@@ -12,6 +12,30 @@ import type { Invoice } from '@/lib/supabase/types';
 import { Navbar } from '@/components/Navbar';
 import { useToast } from '@/components/Toast';
 
+function pickPreferredSolanaWallet(wallets: any[] = []) {
+  if (!wallets.length) return null;
+  const embedded = wallets.find((w: any) => {
+    const wt = String(w?.walletClientType ?? '').toLowerCase();
+    return wt === 'privy' || wt === 'privy-v2' || wt.includes('embedded');
+  });
+  return embedded ?? wallets[0];
+}
+
+function getSolanaChainForClientTx(): 'solana:mainnet' | 'solana:devnet' {
+  const rpc = (process.env.NEXT_PUBLIC_SOLANA_RPC_URL || '').toLowerCase();
+  if (rpc.includes('mainnet')) return 'solana:mainnet';
+  if (rpc.includes('devnet')) return 'solana:devnet';
+  return process.env.NEXT_PUBLIC_SOLANA_NETWORK === 'mainnet' ? 'solana:mainnet' : 'solana:devnet';
+}
+
+function getChainForWallet(wallet: any): 'solana:mainnet' | 'solana:devnet' {
+  const chainId = String(wallet?.chainId ?? '').toLowerCase();
+  if (chainId === 'solana:mainnet' || chainId === 'solana:devnet') {
+    return chainId;
+  }
+  return getSolanaChainForClientTx();
+}
+
 export default function PayInvoicePage() {
   const params = useParams();
   const router = useRouter();
@@ -50,7 +74,7 @@ export default function PayInvoicePage() {
   useEffect(() => {
     if (!invoice || !vaultAddress) return;
     if (solanaWalletsReady && solanaWallets?.length > 0) {
-      setFundingWallet(solanaWallets[0]);
+      setFundingWallet(pickPreferredSolanaWallet(solanaWallets));
       return;
     }
     const solanaFromMain = mainWallets.find((w: { type?: string; chainId?: string; walletClientType?: string }) => {
@@ -138,7 +162,11 @@ export default function PayInvoicePage() {
       const txBytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) txBytes[i] = binary.charCodeAt(i);
 
-      const txResult = await signAndSendTransaction({ transaction: txBytes, wallet, chain: 'solana:devnet' });
+      const txResult = await signAndSendTransaction({
+        transaction: txBytes,
+        wallet,
+        chain: getChainForWallet(wallet),
+      });
       
       const transactionSignature =
         typeof txResult === 'string' ? txResult :
@@ -227,6 +255,7 @@ export default function PayInvoicePage() {
   };
 
   const cfg = statusConfig[invoice.status];
+  const isAwaitingPayment = invoice.status === 'created';
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -302,7 +331,14 @@ export default function PayInvoicePage() {
           >
             <h2 className="text-2xl font-bold text-text mb-2">Complete Payment</h2>
 
-            {paymentModalClosed ? (
+            {!isAwaitingPayment ? (
+              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                <p className="text-amber-800 font-semibold text-sm">Payment already secured in escrow</p>
+                <p className="text-amber-700 text-xs mt-1 leading-relaxed">
+                  This paylink is no longer payable because the invoice has already been funded.
+                </p>
+              </div>
+            ) : paymentModalClosed ? (
               <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
                 <p className="text-amber-800 font-semibold text-sm">Payment window closed</p>
                 <p className="text-amber-700 text-xs mt-1 leading-relaxed">
@@ -318,7 +354,7 @@ export default function PayInvoicePage() {
               </p>
             )}
 
-            {fundingWallet || showPayAnyway ? (
+            {isAwaitingPayment && (fundingWallet || showPayAnyway) ? (
               <div className="space-y-3">
                 <button
                   onClick={handleFundWithCard}
@@ -344,13 +380,13 @@ export default function PayInvoicePage() {
                   )}
                 </button>
               </div>
-            ) : (
+            ) : isAwaitingPayment ? (
               <div className="text-center py-8">
                 <div className="w-8 h-8 rounded-full border-4 border-primary/20 border-t-primary animate-spin mx-auto mb-4" />
                 <p className="text-gray-500 text-sm font-medium">Preparing payment…</p>
                 <p className="text-xs text-gray-400 mt-1">This may take a few seconds</p>
               </div>
-            )}
+            ) : null}
 
             <p className="mt-5 text-xs text-gray-400 text-center leading-relaxed">
               Payment powered by Privy (MoonPay). Your card will be charged in USD and converted to USDC on Solana.
