@@ -11,6 +11,7 @@ import { useToast } from '@/components/Toast';
 
 const statusConfig: Record<Invoice['status'], { label: string; class: string }> = {
   released: { label: 'Paid', class: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  approvals: { label: 'Approvals Complete', class: 'bg-blue-50 text-blue-700 border-blue-200' },
   funded: { label: 'In Escrow', class: 'bg-amber-50 text-amber-700 border-amber-200' },
   disputed: { label: 'Disputed', class: 'bg-red-50 text-red-700 border-red-200' },
   created: { label: 'Awaiting Payment', class: 'bg-gray-50 text-gray-700 border-gray-200' },
@@ -122,7 +123,7 @@ function WalletWithPrivy() {
     .filter((inv) => inv.status === 'released')
     .reduce((sum, inv) => sum + Number(inv.amount_usdc), 0);
 
-  const pendingCount = received.filter((inv) => inv.status === 'funded').length;
+  const pendingCount = received.filter((inv) => inv.status === 'funded' || inv.status === 'approvals').length;
 
   return (
     <main className="min-h-screen flex flex-col bg-gray-50">

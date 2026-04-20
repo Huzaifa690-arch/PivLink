@@ -1,6 +1,7 @@
 import { getSupabase } from '@/lib/supabase/client';
 import type { Invoice } from '@/lib/supabase/types';
 import bcrypt from 'bcryptjs';
+import { sendStateChangeNotification } from '@/lib/api/state-notifications';
 
 export interface CreateInvoiceParams {
   freelancerWallet: string;
@@ -8,6 +9,8 @@ export interface CreateInvoiceParams {
   amountUsdc: number;
   releasePassword: string;
 }
+
+export type InvoiceWorkflowState = 'created' | 'funded' | 'approvals' | 'released';
 
 /** Ensure the freelancer exists in users so invoice FK is satisfied. */
 export async function ensureUser(walletAddress: string, name?: string): Promise<void> {
@@ -48,6 +51,7 @@ export async function createInvoice(params: CreateInvoiceParams): Promise<Invoic
       amount_usdc: params.amountUsdc,
       vault_address: vaultAddress,
       status: 'created',
+      workflow_state: 'created',
       mode: 'manual',
       release_password_hash: releasePasswordHash,
     })
@@ -123,9 +127,87 @@ export async function updateInvoiceStatus(invoiceId: string, status: Invoice['st
   }
 }
 
+export async function transitionInvoiceWorkflowState(
+  invoiceId: string,
+  fromStates: InvoiceWorkflowState[],
+  toState: InvoiceWorkflowState,
+  extraUpdates?: Partial<Invoice>
+): Promise<boolean> {
+  const supabase = getSupabase();
+  const statusValue = toState as Invoice['status'];
+  const fromStateForNotification = fromStates[0];
+  const updates: Record<string, unknown> = {
+    workflow_state: toState,
+    status: statusValue,
+    ...extraUpdates,
+  };
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .update(updates)
+    .eq('id', invoiceId)
+    .in('workflow_state', fromStates)
+    .select('id')
+    .limit(1);
+
+  if (error) {
+    throw new Error(`Failed to transition invoice workflow state: ${error.message}`);
+  }
+
+  const transitioned = Boolean(data && data.length > 0);
+  if (transitioned && fromStateForNotification && fromStateForNotification !== toState) {
+    try {
+      await sendStateChangeNotification({
+        invoiceId,
+        fromState: fromStateForNotification,
+        toState,
+      });
+    } catch (notifyErr) {
+      console.warn('State change notification failed:', notifyErr);
+    }
+  }
+  return transitioned;
+}
+
+export async function markInvoiceReconcileFailure(invoiceId: string, message: string): Promise<void> {
+  const supabase = getSupabase();
+  const now = new Date();
+  const nextRetry = new Date(now.getTime() + 60_000); // fixed 60s backoff for route-level failures
+  const { error } = await supabase
+    .from('invoices')
+    .update({
+      reconcile_attempt_count: 1,
+      reconcile_last_error: message,
+      reconcile_last_checked_at: now.toISOString(),
+      reconcile_next_retry_at: nextRetry.toISOString(),
+    })
+    .eq('id', invoiceId);
+  if (error) {
+    throw new Error(`Failed to store reconciliation failure: ${error.message}`);
+  }
+}
+
+export async function markInvoiceReconcileSuccess(invoiceId: string): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from('invoices')
+    .update({
+      reconcile_attempt_count: 0,
+      reconcile_last_error: null,
+      reconcile_last_checked_at: new Date().toISOString(),
+      reconcile_next_retry_at: null,
+    })
+    .eq('id', invoiceId);
+  if (error) {
+    throw new Error(`Failed to store reconciliation success: ${error.message}`);
+  }
+}
+
 export async function checkFundingStatus(invoiceId: string): Promise<void> {
-  // This will be called by the API route that checks on-chain status
-  const response = await fetch(`/api/invoices/${invoiceId}/check-funding`);
+  // Reconcile on-chain funding and workflow state.
+  const response = await fetch(`/api/invoices/${invoiceId}/reconcile-funding`, {
+    method: 'POST',
+  });
   if (!response.ok) {
     throw new Error('Failed to check funding status');
   }

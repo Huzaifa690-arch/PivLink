@@ -192,7 +192,7 @@ export default function PayInvoicePage() {
       setPaymentModalClosed(true);
 
       try {
-        await fetch(`/api/invoices/${invoiceId}/check-funding`);
+        await fetch(`/api/invoices/${invoiceId}/reconcile-funding`, { method: 'POST' });
       } catch (checkError) {
         console.warn('Funding verification failed:', checkError);
       }
@@ -250,6 +250,7 @@ export default function PayInvoicePage() {
   const statusConfig = {
     created: { label: 'Awaiting Payment', class: 'bg-gray-100 text-gray-700' },
     funded: { label: 'Funded — In Escrow', class: 'bg-amber-100 text-amber-700' },
+    approvals: { label: 'Approvals Complete', class: 'bg-blue-100 text-blue-700' },
     released: { label: 'Released — Paid', class: 'bg-emerald-100 text-emerald-700' },
     disputed: { label: 'Disputed', class: 'bg-red-100 text-red-700' },
   };

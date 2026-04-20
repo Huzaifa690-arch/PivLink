@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getInvoice } from '@/lib/api/invoices';
+import { getInvoice, transitionInvoiceWorkflowState } from '@/lib/api/invoices';
 import { getSupabase } from '@/lib/supabase/client';
+import { deriveIdempotencyKey, getIdempotencyRecord, saveIdempotencyRecord } from '@/lib/api/idempotency';
 
 /**
  * POST /api/invoices/[id]/record-payment
@@ -12,8 +13,16 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const invoiceId = params.id;
+  const ENDPOINT = 'invoices:record-payment';
+  const fallbackSig = request.nextUrl.searchParams.get('sig') || '';
+  const idempotencyKey = deriveIdempotencyKey(request, [ENDPOINT, invoiceId, fallbackSig]);
+  const existing = await getIdempotencyRecord(ENDPOINT, idempotencyKey);
+  if (existing) {
+    return NextResponse.json(existing.response_json, { status: existing.status_code });
+  }
+
   try {
-    const invoiceId = params.id;
     const body = await request.json();
     const transaction_signature =
       typeof body.transaction_signature === 'string' ? body.transaction_signature :
@@ -23,28 +32,47 @@ export async function POST(
       undefined;
 
     if (!transaction_signature) {
-      return NextResponse.json(
-        { error: 'Missing or invalid transaction signature. Provide transaction_signature, signature, txSignature, or txid.' },
-        { status: 400 }
-      );
+      const payload = { error: 'Missing or invalid transaction signature. Provide transaction_signature, signature, txSignature, or txid.' };
+      await saveIdempotencyRecord({
+        endpoint: ENDPOINT,
+        idempotencyKey,
+        invoiceId,
+        statusCode: 400,
+        responseJson: payload,
+      });
+      return NextResponse.json(payload, { status: 400 });
     }
 
     // Fetch invoice
     const invoice = await getInvoice(invoiceId);
     if (!invoice) {
-      return NextResponse.json(
-        { error: 'Invoice not found' },
-        { status: 404 }
-      );
+      const payload = { error: 'Invoice not found' };
+      await saveIdempotencyRecord({
+        endpoint: ENDPOINT,
+        idempotencyKey,
+        invoiceId,
+        statusCode: 404,
+        responseJson: payload,
+      });
+      return NextResponse.json(payload, { status: 404 });
     }
 
     // Check if this transaction was already recorded
     if (invoice.payment_tx_signature && invoice.payment_tx_signature === transaction_signature) {
-      return NextResponse.json({
+      const payload = {
         success: true,
         message: 'Payment already recorded',
         payment_tx_signature: transaction_signature,
+        idempotencyKey,
+      };
+      await saveIdempotencyRecord({
+        endpoint: ENDPOINT,
+        idempotencyKey,
+        invoiceId,
+        statusCode: 200,
+        responseJson: payload,
       });
+      return NextResponse.json(payload);
     }
 
     // Record the payment transaction
@@ -58,22 +86,44 @@ export async function POST(
       .eq('id', invoiceId);
 
     if (dbError) {
-      return NextResponse.json(
-        { error: `Failed to record payment: ${dbError.message}` },
-        { status: 500 }
-      );
+      const payload = { error: `Failed to record payment: ${dbError.message}`, idempotencyKey };
+      await saveIdempotencyRecord({
+        endpoint: ENDPOINT,
+        idempotencyKey,
+        invoiceId,
+        statusCode: 500,
+        responseJson: payload,
+      });
+      return NextResponse.json(payload, { status: 500 });
     }
 
-    return NextResponse.json({
+    // Keep explicit state machine monotonic; do not regress from funded/approvals/released.
+    await transitionInvoiceWorkflowState(invoiceId, ['created', 'funded'], 'funded');
+
+    const payload = {
       success: true,
       message: 'Payment recorded',
       payment_tx_signature: transaction_signature,
+      idempotencyKey,
+    };
+    await saveIdempotencyRecord({
+      endpoint: ENDPOINT,
+      idempotencyKey,
+      invoiceId,
+      statusCode: 200,
+      responseJson: payload,
     });
+    return NextResponse.json(payload);
   } catch (error: any) {
     console.error('Error recording payment:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to record payment' },
-      { status: 500 }
-    );
+    const payload = { error: error.message || 'Failed to record payment', idempotencyKey };
+    await saveIdempotencyRecord({
+      endpoint: ENDPOINT,
+      idempotencyKey,
+      invoiceId,
+      statusCode: 500,
+      responseJson: payload,
+    });
+    return NextResponse.json(payload, { status: 500 });
   }
 }

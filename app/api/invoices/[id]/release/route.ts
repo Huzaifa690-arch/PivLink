@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import * as anchor from '@coral-xyz/anchor';
-import { getInvoice, updateInvoiceStatus } from '@/lib/api/invoices';
-import { getEscrowPDA, getVaultPDA, uuidToBytes, getProgramId, getUsdcMint, getTreasuryWallet } from '@/lib/solana/utils';
+import { getInvoice, transitionInvoiceWorkflowState } from '@/lib/api/invoices';
+import { getEscrowPDA, getVaultPDA, uuidToBytes, getProgramId } from '@/lib/solana/utils';
 import { parseHotWalletKeypair } from '@/lib/solana/hot-wallet';
 import bcrypt from 'bcryptjs';
+import { deriveIdempotencyKey, getIdempotencyRecord, saveIdempotencyRecord } from '@/lib/api/idempotency';
+import { reconcileInvoiceStateSafe } from '@/lib/api/reconciliation';
 
 function keypairWallet(kp: Keypair) {
   return {
@@ -38,33 +40,64 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const invoiceId = params.id;
+  const ENDPOINT = 'invoices:release';
+  const idempotencyKey = deriveIdempotencyKey(request, [ENDPOINT, invoiceId]);
+  const existing = await getIdempotencyRecord(ENDPOINT, idempotencyKey);
+  if (existing) {
+    return NextResponse.json(existing.response_json, { status: existing.status_code });
+  }
+
   try {
-    const invoiceId = params.id;
     const { password } = await request.json();
 
     // Verify password
     const invoice = await getInvoice(invoiceId);
     
     if (!invoice.release_password_hash) {
-      return NextResponse.json(
-        { error: 'Release password not set for this invoice' },
-        { status: 400 }
-      );
+      const payload = { error: 'Release password not set for this invoice', idempotencyKey };
+      await saveIdempotencyRecord({
+        endpoint: ENDPOINT,
+        idempotencyKey,
+        invoiceId,
+        statusCode: 400,
+        responseJson: payload,
+      });
+      return NextResponse.json(payload, { status: 400 });
     }
 
     const isValid = await bcrypt.compare(password, invoice.release_password_hash);
     if (!isValid) {
-      return NextResponse.json(
-        { error: 'Invalid release password' },
-        { status: 401 }
-      );
+      const payload = { error: 'Invalid release password', idempotencyKey };
+      await saveIdempotencyRecord({
+        endpoint: ENDPOINT,
+        idempotencyKey,
+        invoiceId,
+        statusCode: 401,
+        responseJson: payload,
+      });
+      return NextResponse.json(payload, { status: 401 });
     }
 
-    if (invoice.status !== 'funded') {
-      return NextResponse.json(
-        { error: `Invoice is not funded. Current status: ${invoice.status}` },
-        { status: 400 }
-      );
+    let currentWorkflowState = invoice.workflow_state ?? invoice.status;
+    if (currentWorkflowState !== 'approvals') {
+      try {
+        const reconcile = await reconcileInvoiceStateSafe(invoiceId);
+        currentWorkflowState = reconcile.nextState as any;
+      } catch {
+        // Ignore reconcile failure here; normal validation below will return actionable state.
+      }
+    }
+    if (currentWorkflowState !== 'approvals') {
+      const payload = { error: `Invoice is not ready for release. Current workflow state: ${currentWorkflowState}`, idempotencyKey };
+      await saveIdempotencyRecord({
+        endpoint: ENDPOINT,
+        idempotencyKey,
+        invoiceId,
+        statusCode: 400,
+        responseJson: payload,
+      });
+      return NextResponse.json(payload, { status: 400 });
     }
 
     // Get hot wallet (V1 only)
@@ -107,7 +140,7 @@ export async function POST(
     const bypassApprovalChecks =
       process.env.BYPASS_RELEASE_APPROVALS_FOR_DEBUG === 'true';
     if (bypassApprovalChecks) {
-      return NextResponse.json({
+      const payload = {
         success: true,
         debug: true,
         message:
@@ -120,7 +153,16 @@ export async function POST(
           rpcUrl:
             process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.devnet.solana.com',
         },
+        idempotencyKey,
+      };
+      await saveIdempotencyRecord({
+        endpoint: ENDPOINT,
+        idempotencyKey,
+        invoiceId,
+        statusCode: 200,
+        responseJson: payload,
       });
+      return NextResponse.json(payload);
     }
 
     // Derive PDAs
@@ -193,14 +235,23 @@ export async function POST(
       .preInstructions(preInstructions)
       .rpc();
 
-    // Mark invoice as released only after on-chain success
-    await updateInvoiceStatus(invoiceId, 'released');
+    // Mark invoice as released only after on-chain success and only from approvals state.
+    await transitionInvoiceWorkflowState(invoiceId, ['approvals', 'released'], 'released');
 
-    return NextResponse.json({ 
+    const payload = {
       success: true,
       message: 'Funds released successfully',
       transaction: tx,
+      idempotencyKey,
+    };
+    await saveIdempotencyRecord({
+      endpoint: ENDPOINT,
+      idempotencyKey,
+      invoiceId,
+      statusCode: 200,
+      responseJson: payload,
     });
+    return NextResponse.json(payload);
   } catch (error: any) {
     const errorMessage = error?.message || String(error) || 'Unknown error';
     const errorStack = error?.stack || '';
@@ -209,9 +260,14 @@ export async function POST(
       stack: errorStack,
       error: error,
     });
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    );
+    const payload = { error: errorMessage, idempotencyKey };
+    await saveIdempotencyRecord({
+      endpoint: ENDPOINT,
+      idempotencyKey,
+      invoiceId,
+      statusCode: 500,
+      responseJson: payload,
+    });
+    return NextResponse.json(payload, { status: 500 });
   }
 }

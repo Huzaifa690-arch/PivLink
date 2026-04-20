@@ -29,6 +29,7 @@ export interface VerifiedPrivyClaims {
   appId: string;
   issuedAt: number;
   expiration: number;
+  raw: JWTPayload;
 }
 
 /**
@@ -58,6 +59,7 @@ export async function verifyPrivyAccessToken(accessToken: string): Promise<Verif
     appId: typeof payload.aud === 'string' ? payload.aud : appId,
     issuedAt: typeof payload.iat === 'number' ? payload.iat : 0,
     expiration: typeof payload.exp === 'number' ? payload.exp : 0,
+    raw: payload,
   };
 }
 

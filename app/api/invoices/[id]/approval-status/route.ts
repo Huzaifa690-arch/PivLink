@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Connection } from '@solana/web3.js';
 import { AnchorProvider, Program } from '@coral-xyz/anchor';
 import { getEscrowPDA, getProgramId, uuidToBytes } from '@/lib/solana/utils';
+import { transitionInvoiceWorkflowState } from '@/lib/api/invoices';
 
 export async function GET(
   request: NextRequest,
@@ -48,12 +49,18 @@ export async function GET(
 
     const clientApproved = Boolean(escrow.clientApproved);
     const freelancerApproved = Boolean(escrow.freelancerApproved);
+    const readyToRelease = clientApproved && freelancerApproved;
+
+    if (readyToRelease) {
+      // Explicit workflow transition funded -> approvals once both signatures exist.
+      await transitionInvoiceWorkflowState(invoiceId, ['funded', 'approvals'], 'approvals');
+    }
 
     return NextResponse.json({
       initialized: true,
       clientApproved,
       freelancerApproved,
-      readyToRelease: clientApproved && freelancerApproved,
+      readyToRelease,
       escrowState: escrow.state,
       client: escrow.client?.toBase58?.() ?? null,
       freelancer: escrow.freelancer?.toBase58?.() ?? null,

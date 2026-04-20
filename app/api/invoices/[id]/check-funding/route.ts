@@ -1,23 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Connection, Keypair } from '@solana/web3.js';
-import * as anchor from '@coral-xyz/anchor';
-import bs58 from 'bs58';
-import { getInvoice, updateInvoiceStatus } from '@/lib/api/invoices';
-import { getEscrowPDA, getVaultPDA, uuidToBytes, getProgramId } from '@/lib/solana/utils';
-
-function keypairWallet(kp: Keypair) {
-  return {
-    publicKey: kp.publicKey,
-    signTransaction: async (tx: any) => {
-      tx.partialSign(kp);
-      return tx;
-    },
-    signAllTransactions: async (txs: any[]) => {
-      txs.forEach((t) => t.partialSign(kp));
-      return txs;
-    },
-  };
-}
+import { Connection } from '@solana/web3.js';
+import { getInvoice } from '@/lib/api/invoices';
+import { getVaultPDA, uuidToBytes, getProgramId } from '@/lib/solana/utils';
 
 export async function GET(
   request: NextRequest,
@@ -27,10 +11,10 @@ export async function GET(
     const invoiceId = params.id;
     const invoice = await getInvoice(invoiceId);
 
-    if (invoice.status !== 'created') {
+    if (invoice.workflow_state !== 'created') {
       return NextResponse.json({ 
-        status: invoice.status,
-        message: 'Invoice already processed'
+        status: invoice.workflow_state,
+        message: 'Invoice already processed. Use reconcile endpoint for state updates.'
       });
     }
 
@@ -38,7 +22,6 @@ export async function GET(
     const invoiceBytes = uuidToBytes(invoiceId);
     const programId = getProgramId();
     const [vaultPDA] = await getVaultPDA(invoiceBytes, programId);
-    const [escrowPDA] = await getEscrowPDA(invoiceBytes, programId);
 
     // Check vault balance
     const connection = new Connection(
@@ -61,23 +44,14 @@ export async function GET(
     // Convert amount to lamports (USDC has 6 decimals)
     const expectedAmount = BigInt(Math.floor(invoice.amount_usdc * 1_000_000));
 
-    if (BigInt(balance.value.amount) >= expectedAmount) {
-      // If the vault holds enough USDC, consider the invoice funded and update the database.
-      // The payment transaction already includes deposit_notification, so this route should not fail
-      // simply because the server has no hot wallet for an additional notification call.
-      await updateInvoiceStatus(invoiceId, 'funded');
-
-      return NextResponse.json({
-        status: 'funded',
-        balance: balance.value.uiAmount,
-        message: 'Invoice is now funded.',
-      });
-    }
-
+    const isFundedOnChain = BigInt(balance.value.amount) >= expectedAmount;
     return NextResponse.json({
-      status: 'created',
+      status: invoice.workflow_state,
       balance: balance.value.uiAmount,
-      message: 'Invoice not yet funded',
+      fundedOnChain: isFundedOnChain,
+      message: isFundedOnChain
+        ? 'Vault appears funded. Call POST /api/invoices/[id]/reconcile-funding to transition state.'
+        : 'Invoice not yet funded.',
     });
   } catch (error: any) {
     console.error('Error checking funding status:', error);

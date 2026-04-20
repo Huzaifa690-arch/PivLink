@@ -1,0 +1,51 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getSupabase } from '@/lib/supabase/client';
+import { requirePrivyRoles } from '@/lib/api/authz';
+
+function isAdminAuthorized(request: NextRequest): boolean {
+  const expected = process.env.ADMIN_PANEL_SECRET;
+  if (!expected) return false;
+  return request.headers.get('x-admin-secret') === expected;
+}
+
+export async function GET(request: NextRequest) {
+  const authz = await requirePrivyRoles(request, ['admin', 'support']);
+  if (!authz.ok) {
+    return NextResponse.json({ error: authz.error }, { status: authz.status });
+  }
+  if (!isAdminAuthorized(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  try {
+    const supabase = getSupabase();
+    const [eventsRes, ticketsRes, disputesRes] = await Promise.all([
+      supabase
+        .from('activity_audit_events')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200),
+      supabase
+        .from('support_tickets')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(200),
+      supabase
+        .from('invoice_disputes')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(200),
+    ]);
+
+    if (eventsRes.error) throw eventsRes.error;
+    if (ticketsRes.error) throw ticketsRes.error;
+    if (disputesRes.error) throw disputesRes.error;
+
+    return NextResponse.json({
+      events: eventsRes.data ?? [],
+      tickets: ticketsRes.data ?? [],
+      disputes: disputesRes.data ?? [],
+    });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Failed to fetch admin activity' }, { status: 500 });
+  }
+}

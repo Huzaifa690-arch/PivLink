@@ -305,7 +305,9 @@ export default function ReleaseFundsPage() {
     );
   }
 
-  if (invoice.status === 'released') {
+  const workflowState = invoice.workflow_state ?? invoice.status;
+
+  if (workflowState === 'released') {
     return (
       <div className="min-h-screen flex flex-col">
         <Navbar />
@@ -329,7 +331,7 @@ export default function ReleaseFundsPage() {
     );
   }
 
-  if (invoice.status !== 'funded') {
+  if (workflowState !== 'funded' && workflowState !== 'approvals') {
     return (
       <div className="min-h-screen flex flex-col">
         <Navbar />
@@ -395,7 +397,7 @@ export default function ReleaseFundsPage() {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Status</span>
                 <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
-                  Funded — In Escrow
+                  {workflowState === 'approvals' ? 'Approvals Complete' : 'Funded — In Escrow'}
                 </span>
               </div>
             </div>

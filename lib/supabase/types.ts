@@ -12,7 +12,8 @@ export interface Invoice {
   client_name?: string;
   amount_usdc: number;
   vault_address: string;
-  status: 'created' | 'funded' | 'released' | 'disputed';
+  status: 'created' | 'funded' | 'approvals' | 'released' | 'disputed';
+  workflow_state: 'created' | 'funded' | 'approvals' | 'released';
   mode: 'manual' | 'ai';
   release_password_hash?: string;
   escrow_initialized: boolean;
@@ -20,6 +21,10 @@ export interface Invoice {
   payment_tx_signature?: string;
   payment_tx_timestamp?: string;
   deposit_notification_tx?: string;
+  reconcile_attempt_count?: number;
+  reconcile_next_retry_at?: string;
+  reconcile_last_error?: string;
+  reconcile_last_checked_at?: string;
   created_at: string;
   updated_at: string;
 }

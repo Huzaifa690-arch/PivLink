@@ -16,10 +16,26 @@ export default function InvoicePage() {
   const [loading, setLoading] = useState(true);
   const [payLink, setPayLink] = useState('');
   const [blinkUrl, setBlinkUrl] = useState('');
+  const [lastStatus, setLastStatus] = useState<Invoice['status'] | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
     loadInvoice();
+  }, [invoiceId]);
+
+  useEffect(() => {
+    if (!invoice) return;
+    if (lastStatus && lastStatus !== invoice.status) {
+      toast(`Invoice state updated: ${statusLabel(invoice.status)}`, 'success');
+    }
+    setLastStatus(invoice.status);
+  }, [invoice, lastStatus, toast]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void loadInvoice(true);
+    }, 20000);
+    return () => clearInterval(timer);
   }, [invoiceId]);
 
   useEffect(() => {
@@ -29,14 +45,16 @@ export default function InvoicePage() {
     }
   }, [invoice, invoiceId]);
 
-  const loadInvoice = async () => {
+  const loadInvoice = async (silent = false) => {
     try {
       const data = await getInvoice(invoiceId);
       setInvoice(data);
     } catch (error) {
-      console.error('Error loading invoice:', error);
+      if (!silent) {
+        console.error('Error loading invoice:', error);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -80,14 +98,79 @@ export default function InvoicePage() {
     );
   }
 
+  if (invoice.status === 'released') {
+    return (
+      <div className="min-h-screen flex flex-col bg-gray-50">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center px-6 py-12">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="relative max-w-xl w-full bg-white rounded-3xl border border-gray-100 shadow-sm p-10 text-center overflow-hidden"
+          >
+            <div className="pointer-events-none absolute inset-0">
+              {Array.from({ length: 24 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="absolute w-2 h-3 rounded-sm animate-confetti"
+                  style={{
+                    left: `${(i * 17) % 100}%`,
+                    top: `${-8 - (i % 5) * 8}px`,
+                    backgroundColor: i % 3 === 0 ? '#0055FF' : i % 3 === 1 ? '#10B981' : '#F59E0B',
+                    animationDelay: `${(i % 8) * 0.12}s`,
+                    animationDuration: `${2.6 + (i % 4) * 0.25}s`,
+                  }}
+                />
+              ))}
+            </div>
+
+            <div className="w-20 h-20 bg-emerald-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold text-text mb-2">Payment Successful</h1>
+            <p className="text-gray-500 text-sm mb-6">
+              Funds were released successfully.
+            </p>
+            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 mb-8">
+              <p className="text-xs text-emerald-700 mb-1">Invoice ID</p>
+              <code className="text-xs font-mono text-emerald-800 break-all">{invoice.id}</code>
+              <p className="mt-3 text-sm font-semibold text-emerald-800">
+                {Number(invoice.amount_usdc).toLocaleString(undefined, { minimumFractionDigits: 2 })} USDC
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Link
+                href="/wallet"
+                className="w-full bg-primary text-white py-3.5 rounded-2xl font-semibold text-sm hover:bg-blue-600 transition-colors"
+              >
+                View Wallet
+              </Link>
+              <Link
+                href="/"
+                className="w-full border-2 border-gray-200 text-gray-700 py-3.5 rounded-2xl font-semibold text-sm hover:border-primary hover:text-primary transition-colors"
+              >
+                Back to Home
+              </Link>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
   const statusConfig = {
     created: { label: 'Awaiting Payment', class: 'bg-gray-100 text-gray-700' },
     funded: { label: 'Funded — In Escrow', class: 'bg-amber-100 text-amber-700' },
+    approvals: { label: 'Approvals Complete', class: 'bg-blue-100 text-blue-700' },
     released: { label: 'Released — Paid', class: 'bg-emerald-100 text-emerald-700' },
     disputed: { label: 'Disputed', class: 'bg-red-100 text-red-700' },
   };
 
   const cfg = statusConfig[invoice.status];
+  const showReleaseAction = invoice.status === 'funded' || invoice.status === 'approvals';
+  const showPaymentActions = invoice.status === 'created';
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -141,48 +224,75 @@ export default function InvoicePage() {
               </Row>
             </div>
 
-            {/* Pay link */}
-            <div className="mb-4">
-              <h2 className="text-sm font-semibold text-gray-700 mb-2">Pay Link</h2>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={payLink}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl bg-white font-mono text-xs text-gray-500 outline-none"
-                />
-                <button
-                  onClick={() => copyToClipboard(payLink, 'Pay link')}
-                  className="px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-blue-600 transition-colors shrink-0"
-                >
-                  Copy
-                </button>
-              </div>
-              <p className="mt-1.5 text-xs text-gray-400">Share this link with your client so they can pay with card or crypto.</p>
-            </div>
+            {showPaymentActions && (
+              <>
+                {/* Pay link */}
+                <div className="mb-4">
+                  <h2 className="text-sm font-semibold text-gray-700 mb-2">Pay Link</h2>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={payLink}
+                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl bg-white font-mono text-xs text-gray-500 outline-none"
+                    />
+                    <button
+                      onClick={() => copyToClipboard(payLink, 'Pay link')}
+                      className="px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-blue-600 transition-colors shrink-0"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-xs text-gray-400">Share this link with your client so they can pay with card or crypto.</p>
+                </div>
 
-            {/* Blink URL */}
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-2">
-                Solana Blink URL
-                <span className="ml-2 text-xs text-gray-400 font-normal">(for wallet-native payment, no browser needed)</span>
-              </h2>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  readOnly
-                  value={blinkUrl}
-                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl bg-white font-mono text-xs text-gray-500 outline-none"
-                />
-                <button
-                  onClick={() => copyToClipboard(blinkUrl, 'Blink URL')}
-                  className="px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shrink-0"
-                >
-                  Copy
-                </button>
+                {/* Blink URL */}
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-700 mb-2">
+                    Solana Blink URL
+                    <span className="ml-2 text-xs text-gray-400 font-normal">(for wallet-native payment, no browser needed)</span>
+                  </h2>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={blinkUrl}
+                      className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl bg-white font-mono text-xs text-gray-500 outline-none"
+                    />
+                    <button
+                      onClick={() => copyToClipboard(blinkUrl, 'Blink URL')}
+                      className="px-4 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shrink-0"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-xs text-gray-400">Works in X, Backpack, and other Blink-aware applications.</p>
+                </div>
+              </>
+            )}
+
+            {showReleaseAction && (
+              <div className="mt-5 p-4 rounded-2xl border border-blue-200 bg-blue-50 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-blue-800">Funds are in escrow</p>
+                  <p className="text-xs text-blue-700 mt-0.5">Continue to release flow for approvals and payout.</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link
+                    href={`/support?invoiceId=${invoice.id}`}
+                    className="px-3 py-2 rounded-xl border border-blue-300 text-blue-800 text-xs font-semibold hover:bg-blue-100 transition-colors"
+                  >
+                    Raise Dispute
+                  </Link>
+                  <Link
+                    href={`/release/${invoice.id}`}
+                    className="px-4 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-blue-600 transition-colors"
+                  >
+                    Go to Release
+                  </Link>
+                </div>
               </div>
-              <p className="mt-1.5 text-xs text-gray-400">Works in X, Backpack, and other Blink-aware applications.</p>
-            </div>
+            )}
           </motion.div>
 
           {/* Action buttons */}
@@ -192,12 +302,22 @@ export default function InvoicePage() {
             transition={{ delay: 0.15 }}
             className="flex gap-3"
           >
-            <Link
-              href={payLink || '#'}
-              className="flex-1 bg-primary text-white py-3.5 rounded-2xl font-semibold text-sm hover:bg-blue-600 active:scale-[0.98] transition-all text-center shadow-md shadow-primary/20"
-            >
-              Open Pay Link →
-            </Link>
+            {showPaymentActions && (
+              <Link
+                href={payLink || '#'}
+                className="flex-1 bg-primary text-white py-3.5 rounded-2xl font-semibold text-sm hover:bg-blue-600 active:scale-[0.98] transition-all text-center shadow-md shadow-primary/20"
+              >
+                Open Pay Link →
+              </Link>
+            )}
+            {showReleaseAction && (
+              <Link
+                href={`/release/${invoice.id}`}
+                className="flex-1 border-2 border-primary text-primary py-3.5 rounded-2xl font-semibold text-sm hover:bg-primary/5 transition-all text-center"
+              >
+                Open Release →
+              </Link>
+            )}
             <Link
               href="/create"
               className="flex-1 border-2 border-gray-200 text-gray-700 py-3.5 rounded-2xl font-semibold text-sm hover:border-primary hover:text-primary transition-all text-center"
@@ -209,6 +329,17 @@ export default function InvoicePage() {
       </div>
     </div>
   );
+}
+
+function statusLabel(status: Invoice['status']): string {
+  switch (status) {
+    case 'created': return 'Awaiting Payment';
+    case 'funded': return 'Funded — In Escrow';
+    case 'approvals': return 'Approvals Complete';
+    case 'released': return 'Released — Paid';
+    case 'disputed': return 'Disputed';
+    default: return status;
+  }
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {

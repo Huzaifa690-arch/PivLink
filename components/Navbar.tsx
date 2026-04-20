@@ -54,6 +54,13 @@ function NavbarStatic() {
                         Contact
                     </Link>
                     <Link
+                        href="/support"
+                        className={`text-sm font-medium transition-colors ${isActive('/support') ? 'text-primary' : 'text-gray-500 hover:text-text'
+                            }`}
+                    >
+                        Support
+                    </Link>
+                    <Link
                         href="/login"
                         className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-600 active:scale-95 transition-all shadow-sm shadow-primary/20"
                     >
@@ -90,6 +97,9 @@ function NavbarStatic() {
                     </Link>
                     <Link href="/contact" className="block text-sm font-medium text-gray-600 hover:text-primary py-1">
                         Contact
+                    </Link>
+                    <Link href="/support" className="block text-sm font-medium text-gray-600 hover:text-primary py-1">
+                        Support
                     </Link>
                     <Link href="/login" className="btn-primary inline-block text-sm py-2 px-4">
                         Sign In
@@ -152,6 +162,13 @@ function NavbarWithPrivy() {
                             }`}
                     >
                         Contact
+                    </Link>
+                    <Link
+                        href="/support"
+                        className={`text-sm font-medium transition-colors ${isActive('/support') ? 'text-primary' : 'text-gray-500 hover:text-text'
+                            }`}
+                    >
+                        Support
                     </Link>
                     {isAuthenticated && (
                         <>
@@ -222,6 +239,9 @@ function NavbarWithPrivy() {
                     </Link>
                     <Link href="/contact" className="block text-sm font-medium text-gray-600 hover:text-primary py-1">
                         Contact
+                    </Link>
+                    <Link href="/support" className="block text-sm font-medium text-gray-600 hover:text-primary py-1">
+                        Support
                     </Link>
                     {isAuthenticated && (
                         <>

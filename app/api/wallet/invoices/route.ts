@@ -5,7 +5,7 @@ import { getInvoicesByFreelancer } from '@/lib/api/invoices';
 export async function GET(request: NextRequest) {
   try {
     const wallet = request.nextUrl.searchParams.get('wallet');
-    const status = request.nextUrl.searchParams.get('status') as 'created' | 'funded' | 'released' | 'disputed' | null;
+    const status = request.nextUrl.searchParams.get('status') as 'created' | 'funded' | 'approvals' | 'released' | 'disputed' | null;
 
     if (!wallet) {
       return NextResponse.json(
