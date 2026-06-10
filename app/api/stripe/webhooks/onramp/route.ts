@@ -47,7 +47,7 @@ async function processOnrampSessionObject(session: Record<string, unknown>, even
     await updateInvoiceOnramp(invoice.id, {
       onramp_status: mappedStatus,
       onramp_destination_tx: transactionId,
-      payment_tx_signature: transactionId ?? invoice.payment_tx_signature ?? null,
+      ...(transactionId ? { payment_tx_signature: transactionId } : {}),
       payment_tx_timestamp: transactionId ? new Date().toISOString() : invoice.payment_tx_timestamp,
       onramp_error_code:
         typeof (session.last_error as { code?: string } | undefined)?.code === 'string'
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
     eventId: event.id,
     sessionId,
     eventType: event.type,
-    payload: event.data.object as Record<string, unknown>,
+    payload: event.data.object as unknown as Record<string, unknown>,
   });
 
   if (!inserted) {
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (event.type.startsWith('crypto.onramp_session.')) {
-    await processOnrampSessionObject(event.data.object as Record<string, unknown>, event.type);
+    await processOnrampSessionObject(event.data.object as unknown as Record<string, unknown>, event.type);
   }
 
   return NextResponse.json({ received: true });

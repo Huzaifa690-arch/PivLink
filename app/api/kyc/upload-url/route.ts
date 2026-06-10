@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceRole } from '@/lib/supabase/client';
 import { requirePrivyRoles, walletsMatch } from '@/lib/api/authz';
+import { ensureKycDocumentsBucket, KYC_DOCUMENTS_BUCKET } from '@/lib/api/kyc-storage';
 
-const BUCKET = 'kyc-documents';
+const BUCKET = KYC_DOCUMENTS_BUCKET;
 const ALLOWED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'pdf']);
 
 function safeExtension(filename: string): string {
@@ -52,6 +53,11 @@ export async function POST(request: NextRequest) {
 
     const path = `${targetWallet}/${crypto.randomUUID()}.${ext}`;
     const supabase = getSupabaseServiceRole();
+    const bucketReady = await ensureKycDocumentsBucket(supabase);
+    if (!bucketReady.ok) {
+      return NextResponse.json({ error: bucketReady.message }, { status: 500 });
+    }
+
     const { data, error } = await supabase.storage
       .from(BUCKET)
       .createSignedUploadUrl(path);

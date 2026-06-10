@@ -1,0 +1,14 @@
+.env*
+!.env.example
+programs/
+target/
+.anchor/
+test-ledger/
+/supabase/
+scripts/
+vendor/
+hot-wallet.json
+fetched-idl.json
+Cargo.lock
+Cargo.toml
+Anchor.toml
