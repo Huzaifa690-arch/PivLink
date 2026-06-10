@@ -1,15 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabase } from '@/lib/supabase/client';
-import { getInvoice, transitionInvoiceWorkflowState } from '@/lib/api/invoices';
+import { getSupabaseServiceRole } from '@/lib/supabase/client';
 import { logAuditEvent } from '@/lib/api/audit';
 import { requirePrivyRoles, walletsMatch } from '@/lib/api/authz';
+
+function getServiceRoleDebugInfo() {
+  const candidateNames = [
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'SUPABASE_SERVICE_KEY',
+    'SUPABASE_SERVICE_ROLE',
+    'SUPABASE_SECRET_KEY',
+  ] as const;
+  const present = candidateNames.find((name) => Boolean(process.env[name]));
+  const raw = present ? String(process.env[present] ?? '') : '';
+  const normalized = raw.trim().replace(/^['"]|['"]$/g, '').replace(/^Bearer\s+/i, '').trim();
+  return {
+    envNameUsed: present ?? null,
+    hasValue: Boolean(raw),
+    rawLength: raw.length,
+    normalizedLength: normalized.length,
+    hasBearerPrefix: /^Bearer\s+/i.test(raw),
+    looksJwtLike: normalized.split('.').length === 3,
+  };
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = getSupabase();
+    const supabase = getSupabaseServiceRole();
     const { data, error } = await supabase
       .from('invoice_disputes')
       .select('*')
@@ -26,6 +45,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const debugMode = request.nextUrl.searchParams.get('debug') === '1';
   const authz = await requirePrivyRoles(request, ['user', 'support', 'admin']);
   if (!authz.ok) {
     return NextResponse.json({ error: authz.error }, { status: authz.status });
@@ -42,23 +62,51 @@ export async function POST(
     const isStaff = authz.roles.includes('support') || authz.roles.includes('admin');
     const authenticatedWallet = authz.walletAddress;
     if (!isStaff) {
-      if (!authenticatedWallet) {
-        return NextResponse.json(
-          { error: 'Authenticated Solana wallet not found in session token' },
-          { status: 403 }
-        );
-      }
-      if (raisedByWallet && !walletsMatch(raisedByWallet, authenticatedWallet)) {
+      if (authenticatedWallet && raisedByWallet && !walletsMatch(raisedByWallet, authenticatedWallet)) {
         return NextResponse.json(
           { error: 'raisedByWallet must match the authenticated wallet' },
           { status: 403 }
         );
       }
+      if (!authenticatedWallet && !raisedByWallet) {
+        return NextResponse.json(
+          { error: 'raisedByWallet is required when wallet claims are not present in token' },
+          { status: 400 }
+        );
+      }
     }
-    const effectiveRaisedByWallet = isStaff ? (raisedByWallet || null) : authenticatedWallet;
+    const effectiveRaisedByWallet = isStaff
+      ? (raisedByWallet || null)
+      : (authenticatedWallet || raisedByWallet || null);
 
-    const invoice = await getInvoice(params.id);
-    const supabase = getSupabase();
+    let supabase;
+    try {
+      supabase = getSupabaseServiceRole();
+    } catch (clientError: any) {
+      if (debugMode) {
+        return NextResponse.json(
+          {
+            error: clientError?.message || 'Failed to initialize service role client',
+            debug: {
+              serviceRole: getServiceRoleDebugInfo(),
+            },
+          },
+          { status: 500 }
+        );
+      }
+      throw clientError;
+    }
+    const { data: invoice, error: invoiceError } = await supabase
+      .from('invoices')
+      .select('id, workflow_state')
+      .eq('id', params.id)
+      .single();
+    if (invoiceError || !invoice) {
+      return NextResponse.json(
+        { error: invoiceError?.message || 'Invoice not found' },
+        { status: invoiceError?.code === 'PGRST116' ? 404 : 500 }
+      );
+    }
 
     // Create support ticket linked to this dispute
     const { data: ticket, error: ticketError } = await supabase
@@ -91,25 +139,50 @@ export async function POST(
       .single();
     if (disputeError) throw disputeError;
 
-    await transitionInvoiceWorkflowState(
-      params.id,
-      ['created', 'funded', 'approvals', 'released'],
-      (invoice.workflow_state === 'released' ? 'released' : invoice.workflow_state) as any,
-      { status: 'disputed' as any }
-    );
+    const fromStates = ['created', 'funded', 'approvals', 'released'];
+    const toState = invoice.workflow_state === 'released' ? 'released' : invoice.workflow_state;
+    const { error: updateError } = await supabase
+      .from('invoices')
+      .update({ workflow_state: toState, status: 'disputed' })
+      .eq('id', params.id)
+      .in('workflow_state', fromStates);
+    if (updateError) throw updateError;
 
-    await logAuditEvent({
-      eventType: 'dispute.created',
-      invoiceId: params.id,
-      ticketId: ticket.id,
-      disputeId: dispute.id,
-      actor: isStaff ? 'admin' : 'user',
-      actorWallet: effectiveRaisedByWallet,
-      metadata: { reason },
+    let auditWarning: string | null = null;
+    try {
+      await logAuditEvent({
+        eventType: 'dispute.created',
+        invoiceId: params.id,
+        ticketId: ticket.id,
+        disputeId: dispute.id,
+        actor: isStaff ? 'admin' : 'user',
+        actorWallet: effectiveRaisedByWallet,
+        metadata: { reason },
+      });
+    } catch (auditError: any) {
+      // Do not fail dispute creation if audit trail insert fails.
+      auditWarning = auditError?.message || 'Audit logging failed';
+      console.error('Dispute created but audit logging failed:', auditError);
+    }
+
+    return NextResponse.json({
+      success: true,
+      dispute,
+      ticket,
+      ...(debugMode && auditWarning ? { debug: { auditWarning } } : {}),
     });
-
-    return NextResponse.json({ success: true, dispute, ticket });
   } catch (error: any) {
+    if (debugMode) {
+      return NextResponse.json(
+        {
+          error: error?.message || 'Failed to create dispute',
+          debug: {
+            serviceRole: getServiceRoleDebugInfo(),
+          },
+        },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ error: error?.message || 'Failed to create dispute' }, { status: 500 });
   }
 }

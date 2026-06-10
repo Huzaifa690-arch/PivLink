@@ -104,6 +104,47 @@ export async function GET() {
     results.solanaConfig = { ok: false, message: `Config check failed: ${e?.message || String(e)}` };
   }
 
+  // 5. Stripe Crypto Onramp (advisory when disabled)
+  try {
+    const secret = process.env.STRIPE_SECRET_KEY;
+    const publishable = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    const webhook = process.env.STRIPE_WEBHOOK_SECRET;
+    const stripeEnabled = process.env.NEXT_PUBLIC_ENABLE_STRIPE_ONRAMP === 'true';
+
+    if (!stripeEnabled) {
+      results.stripeOnramp = { ok: true, message: 'Stripe on-ramp disabled by feature flag.' };
+    } else if (!secret || !publishable || secret.includes('your_') || publishable.includes('your_')) {
+      results.stripeOnramp = {
+        ok: false,
+        message: 'Stripe on-ramp enabled but STRIPE_SECRET_KEY or NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY missing.',
+      };
+    } else {
+      const res = await fetch('https://api.stripe.com/v1/crypto/onramp_sessions?limit=1', {
+        headers: {
+          Authorization: `Bearer ${secret}`,
+          'Stripe-Version':
+            process.env.STRIPE_CRYPTO_ONRAMP_VERSION || '2026-01-28.clover',
+        },
+        cache: 'no-store',
+      });
+      if (!res.ok && res.status !== 404) {
+        results.stripeOnramp = {
+          ok: false,
+          message: `Stripe crypto on-ramp API unreachable (${res.status}).`,
+        };
+      } else {
+        results.stripeOnramp = {
+          ok: true,
+          message: webhook
+            ? 'Stripe keys configured. Webhook secret set.'
+            : 'Stripe keys configured. STRIPE_WEBHOOK_SECRET not set (webhooks will fail).',
+        };
+      }
+    }
+  } catch (e: any) {
+    results.stripeOnramp = { ok: false, message: `Stripe check failed: ${e?.message || String(e)}` };
+  }
+
   return NextResponse.json({
     ok: allOk,
     results,

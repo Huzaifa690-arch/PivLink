@@ -1,22 +1,25 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import Link from 'next/link';
 import { motion } from 'framer-motion';
+import { Logo } from '@/components/Logo';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { useToast } from '@/components/Toast';
+import { useKycStatus } from '@/lib/hooks/useKycStatus';
 
 export default function LoginPage() {
   const { login, authenticated, ready } = usePrivy();
+  const { loading: kycLoading, allowed: kycAllowed } = useKycStatus();
   const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => {
-    if (ready && authenticated) {
-      router.replace('/');
-    }
-  }, [ready, authenticated, router]);
+    if (!ready || !authenticated) return;
+    if (kycLoading) return;
+    router.replace(kycAllowed ? '/' : '/onboarding/kyc');
+  }, [ready, authenticated, kycLoading, kycAllowed, router]);
 
   if (ready && authenticated) return null;
 
@@ -34,12 +37,7 @@ export default function LoginPage() {
       <div className="absolute -top-20 -right-20 w-96 h-96 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-blue-300/10 rounded-full blur-3xl pointer-events-none" />
 
-      <Link href="/" className="relative mb-10 flex items-center gap-3 group">
-        <div className="w-12 h-12 rounded-3xl bg-primary flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-primary/20">
-          P
-        </div>
-        <span className="text-2xl font-bold text-slate-950">PivLink</span>
-      </Link>
+      <Logo href="/" variant="bridge" size="lg" className="relative mb-10" />
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createInvoice, updateInvoiceVault } from '@/lib/api/invoices';
 import { getVaultPDA, uuidToBytes, getProgramId, isValidSolanaPublicKey } from '@/lib/solana/utils';
 import { getPrivyTokenFromRequest, verifyPrivyAccessToken } from '@/lib/privy-server';
+import { requireKycSubmitted } from '@/lib/api/kyc';
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,6 +32,13 @@ export async function POST(request: NextRequest) {
         { error: 'Missing required fields' },
         { status: 400 }
       );
+    }
+
+    if (process.env.NEXT_PUBLIC_PRIVY_APP_ID) {
+      const gate = await requireKycSubmitted(freelancerWallet);
+      if (!gate.ok) {
+        return NextResponse.json({ error: gate.error }, { status: gate.status });
+      }
     }
 
     // Create invoice in database (no Solana required)

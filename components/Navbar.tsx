@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { useSolanaAddress } from '@/lib/privy';
+import { Logo } from '@/components/Logo';
 
 function NavbarStatic() {
     const pathname = usePathname();
@@ -31,12 +32,7 @@ function NavbarStatic() {
                 }`}
         >
             <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-                <Link href="/" className="flex items-center gap-2 group">
-                    <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm group-hover:scale-105 transition-transform">
-                        P
-                    </div>
-                    <span className="text-xl font-bold text-text tracking-tight">PivLink</span>
-                </Link>
+                <Logo href="/" variant="bridge" size="sm" />
 
                 <div className="hidden md:flex items-center gap-6">
                     <Link
@@ -139,13 +135,7 @@ function NavbarWithPrivy() {
                 }`}
         >
             <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-                {/* Logo */}
-                <Link href="/" className="flex items-center gap-2 group">
-                    <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm group-hover:scale-105 transition-transform">
-                        P
-                    </div>
-                    <span className="text-xl font-bold text-text tracking-tight">PivLink</span>
-                </Link>
+                <Logo href="/" variant="bridge" size="sm" />
 
                 {/* Desktop nav */}
                 <div className="hidden md:flex items-center gap-6">

@@ -8,6 +8,9 @@ import { parseHotWalletKeypair } from '@/lib/solana/hot-wallet';
 import bcrypt from 'bcryptjs';
 import { deriveIdempotencyKey, getIdempotencyRecord, saveIdempotencyRecord } from '@/lib/api/idempotency';
 import { reconcileInvoiceStateSafe } from '@/lib/api/reconciliation';
+import { getSupabase } from '@/lib/supabase/client';
+import { refreshInvoiceTransparencySignature } from '@/lib/api/transparency';
+import { requireKycSubmitted } from '@/lib/api/kyc';
 
 function keypairWallet(kp: Keypair) {
   return {
@@ -77,6 +80,21 @@ export async function POST(
         responseJson: payload,
       });
       return NextResponse.json(payload, { status: 401 });
+    }
+
+    if (process.env.NEXT_PUBLIC_PRIVY_APP_ID) {
+      const gate = await requireKycSubmitted(invoice.freelancer_wallet);
+      if (!gate.ok) {
+        const payload = { error: gate.error, idempotencyKey };
+        await saveIdempotencyRecord({
+          endpoint: ENDPOINT,
+          idempotencyKey,
+          invoiceId,
+          statusCode: gate.status,
+          responseJson: payload,
+        });
+        return NextResponse.json(payload, { status: gate.status });
+      }
     }
 
     let currentWorkflowState = invoice.workflow_state ?? invoice.status;
@@ -216,7 +234,7 @@ export async function POST(
     });
     const idl = await anchor.Program.fetchIdl(programId, provider);
     if (!idl) {
-      throw new Error('PivLink program IDL not found on-chain. Run anchor idl init/upgrade.');
+      throw new Error('PivLinks program IDL not found on-chain. Run anchor idl init/upgrade.');
     }
     const program = new anchor.Program(idl, provider);
 
@@ -235,13 +253,25 @@ export async function POST(
       .preInstructions(preInstructions)
       .rpc();
 
+    const supabase = getSupabase();
+    const { error: releaseTxSaveError } = await supabase
+      .from('invoices')
+      .update({ release_tx_signature: tx })
+      .eq('id', invoiceId);
+    if (releaseTxSaveError) {
+      throw new Error(`Failed to save release transaction signature: ${releaseTxSaveError.message}`);
+    }
+
     // Mark invoice as released only after on-chain success and only from approvals state.
     await transitionInvoiceWorkflowState(invoiceId, ['approvals', 'released'], 'released');
+    const refreshedInvoice = await getInvoice(invoiceId);
+    const transparencySignature = await refreshInvoiceTransparencySignature(refreshedInvoice);
 
     const payload = {
       success: true,
       message: 'Funds released successfully',
       transaction: tx,
+      transaction_transparency_signature: transparencySignature,
       idempotencyKey,
     };
     await saveIdempotencyRecord({

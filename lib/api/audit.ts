@@ -1,4 +1,4 @@
-import { getSupabase } from '@/lib/supabase/client';
+import { getSupabaseServiceRole } from '@/lib/supabase/client';
 
 export async function logAuditEvent(params: {
   eventType: string;
@@ -9,7 +9,7 @@ export async function logAuditEvent(params: {
   actorWallet?: string | null;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
-  const supabase = getSupabase();
+  const supabase = getSupabaseServiceRole();
   const { error } = await supabase.from('activity_audit_events').insert({
     event_type: params.eventType,
     invoice_id: params.invoiceId ?? null,

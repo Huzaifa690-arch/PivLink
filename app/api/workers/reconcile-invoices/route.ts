@@ -25,9 +25,22 @@ export async function POST(request: NextRequest) {
   const supabase = getSupabase();
   const now = new Date().toISOString();
 
-  const { data: invoices, error } = await supabase
+  const { data: pendingOnramp, error: onrampError } = await supabase
     .from('invoices')
-    .select('id, workflow_state, reconcile_attempt_count, reconcile_next_retry_at')
+    .select('id, workflow_state, reconcile_attempt_count, reconcile_next_retry_at, onramp_status')
+    .in('onramp_status', ['processing', 'fulfilled'])
+    .eq('workflow_state', 'created')
+    .or(`reconcile_next_retry_at.is.null,reconcile_next_retry_at.lte.${now}`)
+    .order('updated_at', { ascending: true })
+    .limit(limit);
+
+  if (onrampError) {
+    return NextResponse.json({ error: onrampError.message }, { status: 500 });
+  }
+
+  const { data: standardInvoices, error } = await supabase
+    .from('invoices')
+    .select('id, workflow_state, reconcile_attempt_count, reconcile_next_retry_at, onramp_status')
     .in('workflow_state', ['created', 'funded', 'approvals'])
     .or(`reconcile_next_retry_at.is.null,reconcile_next_retry_at.lte.${now}`)
     .order('updated_at', { ascending: true })
@@ -37,9 +50,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  type ReconcileInvoiceRow = {
+    id: string;
+    workflow_state: string;
+    reconcile_attempt_count: number | null;
+    reconcile_next_retry_at: string | null;
+    onramp_status: string | null;
+  };
+  const merged = new Map<string, ReconcileInvoiceRow>();
+  for (const inv of [...(pendingOnramp ?? []), ...(standardInvoices ?? [])]) {
+    merged.set(inv.id, inv);
+  }
+  const invoices = Array.from(merged.values()).slice(0, limit);
+
   const results: Array<Record<string, unknown>> = [];
   for (const inv of invoices ?? []) {
     try {
+      if (inv.onramp_status === 'fulfilled' && inv.workflow_state === 'created') {
+        const { finalizeInvoiceFunding } = await import('@/lib/payments/finalize-funding');
+        await finalizeInvoiceFunding(inv.id);
+      }
       const result = await reconcileInvoiceStateSafe(inv.id);
       results.push({ invoiceId: inv.id, ok: true, result });
     } catch (err: any) {

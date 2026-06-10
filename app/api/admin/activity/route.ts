@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabase } from '@/lib/supabase/client';
+import { getSupabaseServiceRole } from '@/lib/supabase/client';
 import { requirePrivyRoles } from '@/lib/api/authz';
 
 function isAdminAuthorized(request: NextRequest): boolean {
@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
-    const supabase = getSupabase();
-    const [eventsRes, ticketsRes, disputesRes] = await Promise.all([
+    const supabase = getSupabaseServiceRole();
+    const [eventsRes, ticketsRes, disputesRes, kycRes, onrampInvoicesRes, onrampEventsRes] = await Promise.all([
       supabase
         .from('activity_audit_events')
         .select('*')
@@ -34,16 +34,40 @@ export async function GET(request: NextRequest) {
         .select('*')
         .order('updated_at', { ascending: false })
         .limit(200),
+      supabase
+        .from('user_kyc')
+        .select('*')
+        .order('submitted_at', { ascending: false })
+        .limit(200),
+      supabase
+        .from('invoices')
+        .select(
+          'id, amount_usdc, status, workflow_state, payment_provider, onramp_session_id, onramp_status, onramp_destination_tx, onramp_error_message, reconcile_last_error, reconcile_attempt_count, funded_at, updated_at'
+        )
+        .not('onramp_session_id', 'is', null)
+        .order('updated_at', { ascending: false })
+        .limit(100),
+      supabase
+        .from('stripe_onramp_events')
+        .select('*')
+        .order('received_at', { ascending: false })
+        .limit(100),
     ]);
 
     if (eventsRes.error) throw eventsRes.error;
     if (ticketsRes.error) throw ticketsRes.error;
     if (disputesRes.error) throw disputesRes.error;
+    if (kycRes.error) throw kycRes.error;
+    if (onrampInvoicesRes.error) throw onrampInvoicesRes.error;
+    if (onrampEventsRes.error) throw onrampEventsRes.error;
 
     return NextResponse.json({
       events: eventsRes.data ?? [],
       tickets: ticketsRes.data ?? [],
       disputes: disputesRes.data ?? [],
+      kyc: kycRes.data ?? [],
+      onrampInvoices: onrampInvoicesRes.data ?? [],
+      onrampEvents: onrampEventsRes.data ?? [],
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to fetch admin activity' }, { status: 500 });

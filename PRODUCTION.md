@@ -40,8 +40,11 @@ From the [Privy Dashboard](https://dashboard.privy.io/), ensure you have and con
 - **RPC / chain settings**  
   Ensure **Solana** is enabled and the correct **network** (mainnet/devnet) and RPC URLs are set if you override them in the app.
 
-- **Funding / payments (if using Privy for card funding)**  
-  Configure **Funding** (e.g. MoonPay, Coinbase Onramp) and any **payment** or **onramp** settings so card purchases work in production.
+- **Stripe Crypto Onramp (primary card rail on mainnet)**
+  Configure `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, and register webhook `POST /api/stripe/webhooks/onramp` for `crypto.onramp_session.*` events. Set `NEXT_PUBLIC_SOLANA_NETWORK=mainnet` and `NEXT_PUBLIC_ENABLE_STRIPE_ONRAMP=true`. Use `STRIPE_ONRAMP_MAX_USD` for staged rollout caps.
+
+- **Funding / payments (Privy fallback)**
+  Configure **Funding** (e.g. MoonPay) in Privy if `NEXT_PUBLIC_ENABLE_PRIVY_CARD_FALLBACK=true`.
 
 ---
 

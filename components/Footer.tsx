@@ -1,11 +1,12 @@
 import Link from 'next/link';
+import { Logo } from '@/components/Logo';
 
 export function Footer() {
   return (
     <footer className="bg-slate-950 text-slate-300 py-12">
       <div className="max-w-6xl mx-auto px-6 grid gap-10 md:grid-cols-3">
         <div>
-          <p className="text-white font-semibold text-lg mb-3">PivLink</p>
+          <Logo href="/" variant="bridge" size="sm" dark className="mb-3" wordmarkClassName="text-lg font-bold text-white tracking-tight" />
           <p className="text-sm text-slate-400 leading-relaxed">
             Secure escrow payments for the distributed workforce. Fast settlements, built on Solana, powered by modern wallet authentication.
           </p>
@@ -22,14 +23,20 @@ export function Footer() {
         <div>
           <p className="text-white font-semibold text-sm uppercase tracking-[0.2em] mb-3">Legal</p>
           <div className="space-y-2 text-sm text-slate-400">
-            <span className="block">Terms of Service</span>
-            <span className="block">Privacy Policy</span>
-            <span className="block">Data Security</span>
+            <Link href="/terms" className="block hover:text-white transition-colors">
+              Terms of Service
+            </Link>
+            <Link href="/privacy" className="block hover:text-white transition-colors">
+              Privacy Policy
+            </Link>
+            <Link href="/security" className="block hover:text-white transition-colors">
+              Data Security
+            </Link>
           </div>
         </div>
       </div>
       <div className="mt-10 border-t border-slate-800 pt-6 text-center text-xs text-slate-500">
-        © {new Date().getFullYear()} PivLink. Built for global payment teams.
+        © {new Date().getFullYear()} PivLinks. Built for global payment teams.
       </div>
     </footer>
   );

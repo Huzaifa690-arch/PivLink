@@ -56,7 +56,7 @@ export default function SupportPage() {
     try {
       const targetInvoiceId = invoiceId.trim();
       const endpoint = targetInvoiceId
-        ? `/api/invoices/${targetInvoiceId}/disputes`
+        ? `/api/invoices/${targetInvoiceId}/disputes?debug=1`
         : '/api/support/tickets';
       const body = targetInvoiceId
         ? {
@@ -85,7 +85,13 @@ export default function SupportPage() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Failed to submit support request');
+      if (!res.ok) {
+        if (data?.debug) {
+          console.error('Dispute debug response:', data.debug);
+        }
+        const debugSuffix = data?.debug ? ` | debug: ${JSON.stringify(data.debug)}` : '';
+        throw new Error((data?.error || 'Failed to submit support request') + debugSuffix);
+      }
       toast('Support request submitted. Our team will investigate.', 'success');
       setDetails('');
       await loadTickets();

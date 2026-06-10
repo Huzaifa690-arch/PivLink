@@ -489,7 +489,7 @@ export default function ReleaseFundsPage() {
                 </svg>
                 <div>
                   <p className="text-sm font-semibold text-amber-800">This action cannot be undone</p>
-                  <p className="text-xs text-amber-600 mt-1">Releasing funds transfers 99% to the freelancer and 1% to PivLink treasury.</p>
+                  <p className="text-xs text-amber-600 mt-1">Releasing funds transfers 99% to the freelancer and 1% to PivLinks treasury.</p>
                 </div>
               </div>
 

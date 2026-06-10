@@ -30,7 +30,7 @@ export default function AboutPage() {
                 Built for forward-thinking businesses and remote teams.
               </h1>
               <p className="text-lg leading-8 text-slate-600 mb-8">
-                PivLink was created to simplify global payroll and payments with the transparency of blockchain, the speed of Solana, and the trust of authenticated wallets.
+                PivLinks was created to simplify global payroll and payments with the transparency of blockchain, the speed of Solana, and the trust of authenticated wallets.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link href="/create" className="btn-primary inline-flex items-center justify-center">
@@ -112,7 +112,7 @@ export default function AboutPage() {
         </div>
         <div className="grid gap-6 lg:grid-cols-3">
           {[
-            { quote: 'PivLink removed the friction from our global payment process. We can now manage invoices and release funds with confidence.', name: 'Amelia R.', role: 'Freelance Designer' },
+            { quote: 'PivLinks removed the friction from our global payment process. We can now manage invoices and release funds with confidence.', name: 'Amelia R.', role: 'Freelance Designer' },
             { quote: 'The approval workflow and escrow model give us the control we need while keeping payments fast and transparent.', name: 'Noah S.', role: 'Operations Lead' },
             { quote: 'Every invoice is easier to track, and clients love the secure release flow.', name: 'Priya M.', role: 'Global Payments Manager' },
           ].map((item) => (

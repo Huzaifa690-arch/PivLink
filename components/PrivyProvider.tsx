@@ -20,6 +20,16 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
       ? 'solana:mainnet'
       : 'solana:devnet';
   const enableExternalWallets = process.env.NEXT_PUBLIC_ENABLE_EXTERNAL_SOLANA_WALLETS === 'true';
+  const availableSolanaConnectors = useMemo(() => toSolanaWalletConnectors(), []);
+  const hasSolanaConnectors = useMemo(() => {
+    const values = Object.values(availableSolanaConnectors as Record<string, unknown>);
+    if (values.length === 0) return false;
+    return values.some((value) => {
+      if (Array.isArray(value)) return value.length > 0;
+      return Boolean(value);
+    });
+  }, [availableSolanaConnectors]);
+  const shouldEnableExternalWallets = enableExternalWallets && hasSolanaConnectors;
 
   const solanaRpcConfig = useMemo(() => {
     return {
@@ -31,18 +41,18 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
   }, [configuredNetwork, solanaRpcUrl, solanaWsUrl]);
 
   const externalSolanaConfig = useMemo(() => {
-    if (!enableExternalWallets) return undefined;
+    if (!shouldEnableExternalWallets) return undefined;
     return {
       solana: {
-        connectors: toSolanaWalletConnectors(),
+        connectors: availableSolanaConnectors,
       },
     };
-  }, [enableExternalWallets]);
+  }, [availableSolanaConnectors, shouldEnableExternalWallets]);
   const loginMethods = useMemo(() => {
     // If external wallet connectors are disabled, don't advertise wallet login.
     // Users can still log in via email and get an embedded Solana wallet.
-    return enableExternalWallets ? (['email', 'wallet'] as const) : (['email'] as const);
-  }, [enableExternalWallets]);
+    return shouldEnableExternalWallets ? (['email', 'wallet'] as const) : (['email'] as const);
+  }, [shouldEnableExternalWallets]);
 
   return (
     <PrivyProviderBase

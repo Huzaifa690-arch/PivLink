@@ -61,6 +61,7 @@ Fill in your values:
   - Mainnet: `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` (real USDC)
 - **Treasury Wallet**: Your wallet address that will receive the 1% fee
 - **Privy App ID** (required): For embedded wallet authentication and payment processing, create an app at [Privy Dashboard](https://dashboard.privy.io/), copy your App ID, and set `NEXT_PUBLIC_PRIVY_APP_ID` in `.env`. This enables email-based login, automatic Solana wallet creation, and card payment processing.
+- **Stripe Crypto Onramp** (mainnet card payments): Set `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_CRYPTO_ONRAMP_VERSION` from your [Stripe Dashboard](https://dashboard.stripe.com/). Configure the webhook endpoint `https://your-domain.com/api/stripe/webhooks/onramp` for `crypto.onramp_session.*` events. Use feature flags in `.env.example` to choose Stripe vs Privy/Blink fallbacks.
 - **Hot Wallet**: Generate a new keypair for V1 release signing:
   ```bash
   solana-keygen new -o hot-wallet.json

@@ -144,7 +144,7 @@ Releases funds from escrow.
 ## V2 Roadmap
 
 - AI verification mode (5% fee)
-- Stripe integration (replaces Transak)
+- Stripe Crypto Onramp (card → USDC → escrow vault; Privy/Blink fallbacks)
 - Client wallet signing (replaces hot wallet)
 - Dispute resolution system
 

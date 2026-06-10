@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabase } from '@/lib/supabase/client';
+import { getSupabaseServiceRole } from '@/lib/supabase/client';
 import { logAuditEvent } from '@/lib/api/audit';
 import { requirePrivyRoles } from '@/lib/api/authz';
 
@@ -28,7 +28,7 @@ export async function PATCH(
     if (body.assignedTo !== undefined) updates.assigned_to = body.assignedTo;
     if (body.resolutionNotes !== undefined) updates.resolution_notes = body.resolutionNotes;
 
-    const supabase = getSupabase();
+    const supabase = getSupabaseServiceRole();
     const { data, error } = await supabase
       .from('support_tickets')
       .update(updates)

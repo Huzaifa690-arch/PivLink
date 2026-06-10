@@ -171,6 +171,15 @@ export default function InvoicePage() {
   const cfg = statusConfig[invoice.status];
   const showReleaseAction = invoice.status === 'funded' || invoice.status === 'approvals';
   const showPaymentActions = invoice.status === 'created';
+  const hasTransparencySignature = Boolean(invoice.transaction_transparency_signature);
+  const solanaCluster =
+    process.env.NEXT_PUBLIC_SOLANA_RPC_URL?.includes('devnet') ? 'devnet' : 'mainnet';
+  const paymentExplorerUrl = invoice.payment_tx_signature
+    ? `https://solscan.io/tx/${invoice.payment_tx_signature}?cluster=${solanaCluster}`
+    : null;
+  const releaseExplorerUrl = invoice.release_tx_signature
+    ? `https://solscan.io/tx/${invoice.release_tx_signature}?cluster=${solanaCluster}`
+    : null;
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -199,7 +208,7 @@ export default function InvoicePage() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
-                  <h1 className="text-2xl font-bold text-text">Invoice Created</h1>
+                  <h1 className="text-2xl font-bold text-text">{titleForStatus(invoice.status)}</h1>
                 </div>
                 <p className="text-gray-500 text-sm">Share the pay link below with your client.</p>
               </div>
@@ -223,6 +232,60 @@ export default function InvoicePage() {
                 <code className="text-xs font-mono text-gray-400 break-all">{invoice.vault_address || 'Not initialized'}</code>
               </Row>
             </div>
+
+            {hasTransparencySignature && (
+              <div className="mb-6 rounded-2xl border border-indigo-100 bg-indigo-50 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-indigo-900">Transaction Transparency Signature</h3>
+                    <p className="mt-1 text-xs text-indigo-700">
+                      Cryptographic fingerprint for payment/release transaction authenticity.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() =>
+                      copyToClipboard(
+                        invoice.transaction_transparency_signature || '',
+                        'Transparency signature'
+                      )
+                    }
+                    className="px-3 py-2 rounded-xl border border-indigo-200 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 transition-colors shrink-0"
+                  >
+                    Copy Signature
+                  </button>
+                </div>
+                <code className="mt-3 block text-[11px] font-mono text-indigo-800 break-all">
+                  {invoice.transaction_transparency_signature}
+                </code>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {paymentExplorerUrl && (
+                    <a
+                      href={paymentExplorerUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2.5 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-700 text-[11px] font-semibold hover:bg-indigo-100 transition-colors"
+                    >
+                      View payment tx
+                    </a>
+                  )}
+                  {releaseExplorerUrl && (
+                    <a
+                      href={releaseExplorerUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-2.5 py-1.5 rounded-lg bg-white border border-indigo-200 text-indigo-700 text-[11px] font-semibold hover:bg-indigo-100 transition-colors"
+                    >
+                      View release tx
+                    </a>
+                  )}
+                  {invoice.transaction_transparency_generated_at && (
+                    <span className="text-[11px] text-indigo-700">
+                      Generated: {new Date(invoice.transaction_transparency_generated_at).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {showPaymentActions && (
               <>
@@ -339,6 +402,17 @@ function statusLabel(status: Invoice['status']): string {
     case 'released': return 'Released — Paid';
     case 'disputed': return 'Disputed';
     default: return status;
+  }
+}
+
+function titleForStatus(status: Invoice['status']): string {
+  switch (status) {
+    case 'created': return 'Invoice Created';
+    case 'funded': return 'Invoice Funded';
+    case 'approvals': return 'Awaiting Release';
+    case 'released': return 'Payment Successful';
+    case 'disputed': return 'Invoice Disputed';
+    default: return 'Invoice';
   }
 }
 

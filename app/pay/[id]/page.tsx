@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
@@ -11,6 +11,8 @@ import { getInvoice } from '@/lib/api/invoices';
 import type { Invoice } from '@/lib/supabase/types';
 import { Navbar } from '@/components/Navbar';
 import { useToast } from '@/components/Toast';
+import { StripeOnrampWidget } from '@/components/StripeOnrampWidget';
+import { fetchPaymentBootstrap, type ClientPaymentBootstrap } from '@/lib/payments/client';
 
 function pickPreferredSolanaWallet(wallets: any[] = []) {
   if (!wallets.length) return null;
@@ -40,7 +42,7 @@ export default function PayInvoicePage() {
   const params = useParams();
   const router = useRouter();
   const invoiceId = params.id as string;
-  const { authenticated, ready } = usePrivy();
+  const { authenticated, ready, getAccessToken } = usePrivy();
   const { wallets: mainWallets } = useWallets();
   const { wallets: solanaWallets, ready: solanaWalletsReady } = useSolanaWallets();
   const { fundWallet } = useFundWallet();
@@ -55,7 +57,57 @@ export default function PayInvoicePage() {
   const [paymentModalClosed, setPaymentModalClosed] = useState(false);
   const [blinkPayLoading, setBlinkPayLoading] = useState(false);
   const [cardPayLoading, setCardPayLoading] = useState(false);
+  const [stripeSessionLoading, setStripeSessionLoading] = useState(false);
   const [blinkUrl, setBlinkUrl] = useState('');
+  const [paymentBootstrap, setPaymentBootstrap] = useState<ClientPaymentBootstrap | null>(null);
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [stripeSessionId, setStripeSessionId] = useState<string | null>(null);
+  const [stripePolling, setStripePolling] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopStripePolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    setStripePolling(false);
+  }, []);
+
+  const pollStripeStatus = useCallback(async () => {
+    if (!stripeSessionId) return;
+    try {
+      const token = await getAccessToken();
+      const headers: HeadersInit = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(`/api/stripe/onramp/status/${stripeSessionId}`, { headers });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to check payment status');
+
+      if (data.status === 'fulfilled') {
+        stopStripePolling();
+        toast('Payment received! Funds are in escrow.', 'success');
+        router.push(`/pay/${invoiceId}/success`);
+      } else if (data.status === 'failed' || data.status === 'expired') {
+        stopStripePolling();
+        toast('Card payment did not complete. You can try again.', 'error');
+        setStripeClientSecret(null);
+        setStripeSessionId(null);
+      }
+    } catch (err) {
+      console.warn('Stripe status poll failed:', err);
+    }
+  }, [getAccessToken, invoiceId, router, stopStripePolling, stripeSessionId, toast]);
+
+  useEffect(() => {
+    if (!stripeSessionId || stripePolling) return;
+    setStripePolling(true);
+    pollRef.current = setInterval(() => {
+      void pollStripeStatus();
+    }, 4000);
+    void pollStripeStatus();
+    return () => stopStripePolling();
+  }, [stripeSessionId, stripePolling, pollStripeStatus, stopStripePolling]);
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -92,15 +144,59 @@ export default function PayInvoicePage() {
     return () => clearTimeout(t);
   }, [invoice, loading]);
 
+  const preparePayment = async () => {
+    try {
+      await fetch(`/api/invoices/${invoiceId}/prepare`, { method: 'POST' });
+    } catch (err) {
+      console.warn('Escrow prepare failed:', err);
+    }
+
+    try {
+      const token = await getAccessToken();
+      const bootstrap = await fetchPaymentBootstrap(token);
+      setPaymentBootstrap(bootstrap);
+    } catch (err) {
+      console.warn('Payment bootstrap failed:', err);
+    }
+  };
+
   const loadInvoice = async () => {
     try {
       const data = await getInvoice(invoiceId);
       setInvoice(data);
       setVaultAddress(data.vault_address || '');
+      await preparePayment();
     } catch {
       toast('Failed to load invoice.', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const startStripeOnramp = async () => {
+    if (!invoice) return;
+    setStripeSessionLoading(true);
+    try {
+      const token = await getAccessToken();
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch('/api/stripe/onramp/session', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ invoiceId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to start card payment');
+
+      setStripeClientSecret(data.clientSecret);
+      setStripeSessionId(data.sessionId);
+      setPaymentModalClosed(false);
+    } catch (error: any) {
+      console.error('Stripe onramp error:', error);
+      toast(error?.message || 'Could not start Stripe payment.', 'error');
+    } finally {
+      setStripeSessionLoading(false);
     }
   };
 
@@ -167,7 +263,7 @@ export default function PayInvoicePage() {
         wallet,
         chain: getChainForWallet(wallet),
       });
-      
+
       const transactionSignature =
         typeof txResult === 'string' ? txResult :
         txResult instanceof Uint8Array ? bs58.encode(txResult) :
@@ -185,8 +281,6 @@ export default function PayInvoicePage() {
         } catch (recordError) {
           console.warn('Failed to record payment signature:', recordError);
         }
-      } else {
-        console.warn('Could not determine transaction signature from signAndSendTransaction result:', txResult);
       }
 
       setPaymentModalClosed(true);
@@ -206,6 +300,16 @@ export default function PayInvoicePage() {
       setBlinkPayLoading(false);
     }
   };
+
+  const methods = paymentBootstrap?.methods;
+  const showStripe = Boolean(methods?.stripe);
+  const showPrivyCard = Boolean(methods?.privyCard);
+  const showBlink = Boolean(methods?.blink ?? true);
+  const providerLabel = showStripe
+    ? 'Stripe Crypto Onramp'
+    : showPrivyCard
+      ? 'Privy (MoonPay)'
+      : 'Solana';
 
   if (!ready) {
     return (
@@ -270,7 +374,6 @@ export default function PayInvoicePage() {
         </Link>
 
         <div className="grid md:grid-cols-2 gap-6">
-          {/* Invoice details */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -303,7 +406,6 @@ export default function PayInvoicePage() {
               </div>
             </div>
 
-            {/* Blink URL */}
             <div className="mt-6 pt-6 border-t border-gray-100">
               <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-2">Solana Blink URL</p>
               <div className="flex gap-2">
@@ -323,7 +425,6 @@ export default function PayInvoicePage() {
             </div>
           </motion.div>
 
-          {/* Payment section */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -339,11 +440,11 @@ export default function PayInvoicePage() {
                   This paylink is no longer payable because the invoice has already been funded.
                 </p>
               </div>
-            ) : paymentModalClosed ? (
+            ) : paymentModalClosed && !stripeClientSecret ? (
               <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
                 <p className="text-amber-800 font-semibold text-sm">Payment window closed</p>
                 <p className="text-amber-700 text-xs mt-1 leading-relaxed">
-                  If you completed the purchase, USDC may take a few minutes to arrive. If you closed without paying, click &quot;Pay with Card&quot; again to retry.
+                  If you completed the purchase, USDC may take a few minutes to arrive in escrow. Otherwise, start payment again below.
                 </p>
                 <Link href={`/pay/${invoiceId}/success`} className="inline-block mt-3 text-primary font-medium text-xs hover:underline">
                   I completed payment → View next steps
@@ -351,37 +452,74 @@ export default function PayInvoicePage() {
               </div>
             ) : (
               <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-                Pay with your credit or debit card. Funds will be converted to USDC and held securely in escrow until work is verified.
+                {showStripe
+                  ? 'Pay with your card. USDC is delivered directly to the invoice escrow vault — no extra transfer step.'
+                  : 'Pay with your credit or debit card or USDC wallet. Funds are held securely in escrow until work is verified.'}
               </p>
             )}
 
-            {isAwaitingPayment && (fundingWallet || showPayAnyway) ? (
-              <div className="space-y-3">
-                <button
-                  onClick={handleFundWithCard}
-                  disabled={cardPayLoading}
-                  className="w-full bg-primary text-white py-4 rounded-2xl font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                >
-                  {cardPayLoading ? (
-                    <><div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" /> Processing…</>
-                  ) : (
-                    <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg> Pay with Card</>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePayWithBlink}
-                  disabled={blinkPayLoading || !fundingWallet}
-                  className="w-full border-2 border-primary text-primary py-4 rounded-2xl font-semibold hover:bg-primary/5 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-                >
-                  {blinkPayLoading ? (
-                    <><div className="w-4 h-4 rounded-full border-2 border-primary/40 border-t-primary animate-spin" /> Preparing…</>
-                  ) : (
-                    <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> Pay with USDC (Blink)</>
-                  )}
-                </button>
+            {stripeClientSecret && isAwaitingPayment ? (
+              <div className="mb-4">
+                <StripeOnrampWidget
+                  clientSecret={stripeClientSecret}
+                  onSessionUpdated={() => void pollStripeStatus()}
+                />
+                {stripePolling && (
+                  <p className="text-xs text-gray-400 text-center mt-3">Confirming payment…</p>
+                )}
               </div>
-            ) : isAwaitingPayment ? (
+            ) : null}
+
+            {isAwaitingPayment && !stripeClientSecret && (fundingWallet || showStripe || showPayAnyway) ? (
+              <div className="space-y-3">
+                {showStripe && (
+                  <button
+                    onClick={startStripeOnramp}
+                    disabled={stripeSessionLoading}
+                    className="w-full bg-primary text-white py-4 rounded-2xl font-semibold hover:bg-blue-600 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {stripeSessionLoading ? (
+                      <><div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" /> Starting…</>
+                    ) : (
+                      <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg> Pay with Card (Stripe)</>
+                    )}
+                  </button>
+                )}
+
+                {showPrivyCard && (
+                  <button
+                    onClick={handleFundWithCard}
+                    disabled={cardPayLoading || !fundingWallet}
+                    className={`w-full py-4 rounded-2xl font-semibold active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm ${
+                      showStripe
+                        ? 'border-2 border-gray-200 text-gray-700 hover:border-primary hover:text-primary'
+                        : 'bg-primary text-white hover:bg-blue-600 shadow-lg shadow-primary/20'
+                    }`}
+                  >
+                    {cardPayLoading ? (
+                      <><div className="w-4 h-4 rounded-full border-2 border-current/40 border-t-current animate-spin" /> Processing…</>
+                    ) : (
+                      <>Pay with Card (Privy)</>
+                    )}
+                  </button>
+                )}
+
+                {showBlink && (
+                  <button
+                    type="button"
+                    onClick={handlePayWithBlink}
+                    disabled={blinkPayLoading || !fundingWallet}
+                    className="w-full border-2 border-primary text-primary py-4 rounded-2xl font-semibold hover:bg-primary/5 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {blinkPayLoading ? (
+                      <><div className="w-4 h-4 rounded-full border-2 border-primary/40 border-t-primary animate-spin" /> Preparing…</>
+                    ) : (
+                      <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> Pay with USDC (Blink)</>
+                    )}
+                  </button>
+                )}
+              </div>
+            ) : isAwaitingPayment && !stripeClientSecret ? (
               <div className="text-center py-8">
                 <div className="w-8 h-8 rounded-full border-4 border-primary/20 border-t-primary animate-spin mx-auto mb-4" />
                 <p className="text-gray-500 text-sm font-medium">Preparing payment…</p>
@@ -390,7 +528,7 @@ export default function PayInvoicePage() {
             ) : null}
 
             <p className="mt-5 text-xs text-gray-400 text-center leading-relaxed">
-              Payment powered by Privy (MoonPay). Your card will be charged in USD and converted to USDC on Solana.
+              Payment powered by {providerLabel}. Your card is charged in USD and converted to USDC on Solana escrow.
             </p>
           </motion.div>
         </div>

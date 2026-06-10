@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getInvoice, transitionInvoiceWorkflowState } from '@/lib/api/invoices';
 import { getSupabase } from '@/lib/supabase/client';
 import { deriveIdempotencyKey, getIdempotencyRecord, saveIdempotencyRecord } from '@/lib/api/idempotency';
+import { refreshInvoiceTransparencySignature } from '@/lib/api/transparency';
+import { requirePrivyRoles } from '@/lib/api/authz';
+import { requireKycSubmitted } from '@/lib/api/kyc';
 
 /**
  * POST /api/invoices/[id]/record-payment
@@ -20,6 +23,19 @@ export async function POST(
   const existing = await getIdempotencyRecord(ENDPOINT, idempotencyKey);
   if (existing) {
     return NextResponse.json(existing.response_json, { status: existing.status_code });
+  }
+
+  if (process.env.NEXT_PUBLIC_PRIVY_APP_ID) {
+    const authz = await requirePrivyRoles(request, ['user', 'support', 'admin']);
+    if (!authz.ok) {
+      return NextResponse.json({ error: authz.error }, { status: authz.status });
+    }
+    if (authz.walletAddress) {
+      const gate = await requireKycSubmitted(authz.walletAddress);
+      if (!gate.ok) {
+        return NextResponse.json({ error: gate.error }, { status: gate.status });
+      }
+    }
   }
 
   try {
@@ -99,11 +115,14 @@ export async function POST(
 
     // Keep explicit state machine monotonic; do not regress from funded/approvals/released.
     await transitionInvoiceWorkflowState(invoiceId, ['created', 'funded'], 'funded');
+    const refreshedInvoice = await getInvoice(invoiceId);
+    const transparencySignature = await refreshInvoiceTransparencySignature(refreshedInvoice);
 
     const payload = {
       success: true,
       message: 'Payment recorded',
       payment_tx_signature: transaction_signature,
+      transaction_transparency_signature: transparencySignature,
       idempotencyKey,
     };
     await saveIdempotencyRecord({

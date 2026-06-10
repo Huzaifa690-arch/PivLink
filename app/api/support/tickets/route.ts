@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabase } from '@/lib/supabase/client';
+import { getSupabase, getSupabaseServiceRole } from '@/lib/supabase/client';
 import { logAuditEvent } from '@/lib/api/audit';
 import { requirePrivyRoles, walletsMatch } from '@/lib/api/authz';
 
@@ -46,22 +46,24 @@ export async function POST(request: NextRequest) {
     const isStaff = authz.roles.includes('support') || authz.roles.includes('admin');
     const authenticatedWallet = authz.walletAddress;
     if (!isStaff) {
-      if (!authenticatedWallet) {
-        return NextResponse.json(
-          { error: 'Authenticated Solana wallet not found in session token' },
-          { status: 403 }
-        );
-      }
-      if (requesterWallet && !walletsMatch(requesterWallet, authenticatedWallet)) {
+      if (authenticatedWallet && requesterWallet && !walletsMatch(requesterWallet, authenticatedWallet)) {
         return NextResponse.json(
           { error: 'requesterWallet must match the authenticated wallet' },
           { status: 403 }
         );
       }
+      if (!authenticatedWallet && !requesterWallet) {
+        return NextResponse.json(
+          { error: 'requesterWallet is required when wallet claims are not present in token' },
+          { status: 400 }
+        );
+      }
     }
-    const effectiveRequesterWallet = isStaff ? (requesterWallet || null) : authenticatedWallet;
+    const effectiveRequesterWallet = isStaff
+      ? (requesterWallet || null)
+      : (authenticatedWallet || requesterWallet || null);
 
-    const supabase = getSupabase();
+    const supabase = getSupabaseServiceRole();
     const { data, error } = await supabase
       .from('support_tickets')
       .insert({

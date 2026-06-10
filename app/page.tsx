@@ -28,7 +28,7 @@ function HomeWithPrivy() {
                   Instant invoice payments for remote teams and freelancers.
                 </h1>
                 <p className="text-lg leading-8 text-slate-600 mb-8">
-                  PivLink combines Privy authentication, Solana escrow, and real-time on-chain settlements so your global workforce gets paid faster, safer, and with simple self-service workflows.
+                  PivLinks combines Privy authentication, Solana escrow, and real-time on-chain settlements so your global workforce gets paid faster, safer, and with simple self-service workflows.
                 </p>
 
                 <div className="flex flex-col sm:flex-row gap-4">
@@ -88,7 +88,7 @@ function HomeWithPrivy() {
                 <p className="text-sm uppercase tracking-[0.35em] text-slate-400 mb-3">Built for remote teams</p>
                 <h2 className="text-4xl font-bold tracking-tight mb-6">Modern escrow payments that look and feel enterprise-ready.</h2>
                 <p className="text-slate-300 leading-8 mb-8">
-                  PivLink gives finance and operations teams the tools to launch fast invoice workflows without complex banking integrations. Your clients can pay in USDC, your freelancers get paid on Solana, and every transaction is protected with escrow logic.
+                  PivLinks gives finance and operations teams the tools to launch fast invoice workflows without complex banking integrations. Your clients can pay in USDC, your freelancers get paid on Solana, and every transaction is protected with escrow logic.
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
                   {[
@@ -127,7 +127,7 @@ function HomeWithPrivy() {
             <div className="grid gap-6 lg:grid-cols-3">
               {[
                 {
-                  quote: 'PivLink removed the friction from our global payment process. We can now manage invoices and release funds with confidence.',
+                  quote: 'PivLinks removed the friction from our global payment process. We can now manage invoices and release funds with confidence.',
                   name: 'Amelia R.',
                   role: 'Freelance Designer',
                 },
@@ -167,7 +167,7 @@ export default function Home() {
             <p className="font-semibold text-amber-800">Privy not configured</p>
             <p className="text-sm text-amber-700">Add NEXT_PUBLIC_PRIVY_APP_ID to app/.env.local and restart the dev server.</p>
           </div>
-          <h1 className="text-3xl font-bold mb-3">PivLink</h1>
+          <h1 className="text-3xl font-bold mb-3">PivLinks</h1>
           <p className="mb-4">Your app is ready. Configure Privy to use auth and wallet features.</p>
           <a className="text-blue-600 underline" href="https://dashboard.privy.io/" target="_blank" rel="noreferrer">Get Privy App ID</a>
         </div>

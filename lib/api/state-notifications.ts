@@ -12,7 +12,9 @@ export async function sendStateChangeNotification(params: {
   const supabase = getSupabase();
   const { data: invoice, error } = await supabase
     .from('invoices')
-    .select('id, amount_usdc, client_name, freelancer_wallet, status, workflow_state')
+    .select(
+      'id, amount_usdc, client_name, freelancer_wallet, status, workflow_state, payment_provider, onramp_destination_tx, onramp_status, onramp_session_id'
+    )
     .eq('id', params.invoiceId)
     .single();
   if (error || !invoice) {
@@ -28,6 +30,10 @@ export async function sendStateChangeNotification(params: {
       freelancer_wallet: invoice.freelancer_wallet,
       status: invoice.status,
       workflow_state: invoice.workflow_state,
+      payment_provider: (invoice as { payment_provider?: string | null }).payment_provider ?? null,
+      onramp_status: (invoice as { onramp_status?: string | null }).onramp_status ?? null,
+      onramp_session_id: (invoice as { onramp_session_id?: string | null }).onramp_session_id ?? null,
+      onramp_destination_tx: (invoice as { onramp_destination_tx?: string | null }).onramp_destination_tx ?? null,
     },
     transition: {
       from: params.fromState,

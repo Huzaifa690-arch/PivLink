@@ -21,7 +21,7 @@ export async function GET(
 
   const payload: ActionGetResponse = {
     type: 'action',
-    title: 'PivLink - Client approval',
+    title: 'PivLinks - Client approval',
     icon: new URL('/favicon.ico', origin).toString(),
     description: 'Approve escrow release as the client.',
     label: 'Approve as client',

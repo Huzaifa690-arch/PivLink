@@ -42,7 +42,7 @@ export default function ContactPage() {
             <p className="text-primary font-semibold text-sm uppercase tracking-widest mb-3">Get in touch</p>
             <h1 className="text-4xl md:text-5xl font-bold text-text mb-4">Contact us</h1>
             <p className="text-lg text-gray-500 mb-10">
-              Have questions about PivLink or need support? Send us a message and we&apos;ll get back to you.
+              Have questions about PivLinks or need support? Send us a message and we&apos;ll get back to you.
             </p>
 
             {submitted ? (
@@ -59,8 +59,8 @@ export default function ContactPage() {
                 <h2 className="text-xl font-bold text-text mb-2">Message received!</h2>
                 <p className="text-gray-500 text-sm mb-2">
                   We don&apos;t have a backend mailer configured yet. For now, email us directly at{' '}
-                  <a href="mailto:support@pivlink.example.com" className="text-primary underline">
-                    support@pivlink.example.com
+                  <a href="mailto:support@pivlinks.example.com" className="text-primary underline">
+                    support@pivlinks.example.com
                   </a>
                 </p>
                 <button
@@ -124,8 +124,8 @@ export default function ContactPage() {
 
             <div className="mt-10 pt-8 border-t border-gray-100">
               <p className="text-sm text-gray-400 mb-1">Prefer email?</p>
-              <a href="mailto:support@pivlink.example.com" className="text-primary font-semibold hover:underline">
-                support@pivlink.example.com
+              <a href="mailto:support@pivlinks.example.com" className="text-primary font-semibold hover:underline">
+                support@pivlinks.example.com
               </a>
             </div>
           </motion.div>
@@ -134,7 +134,7 @@ export default function ContactPage() {
 
       <footer className="border-t border-gray-100 py-6 px-6">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <span className="text-gray-400 text-sm">© {new Date().getFullYear()} PivLink</span>
+          <span className="text-gray-400 text-sm">© {new Date().getFullYear()} PivLinks</span>
           <div className="flex gap-6">
             <Link href="/about" className="text-gray-400 hover:text-primary text-sm font-medium transition-colors">About</Link>
             <Link href="/create" className="text-gray-400 hover:text-primary text-sm font-medium transition-colors">Create Invoice</Link>

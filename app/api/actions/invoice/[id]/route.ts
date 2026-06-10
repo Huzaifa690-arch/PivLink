@@ -35,7 +35,7 @@ export async function GET(
 
     const payload: ActionGetResponse = {
       type: 'action',
-      title: 'PivLink – Pay invoice',
+      title: 'PivLinks – Pay invoice',
       icon: new URL('/favicon.ico', origin).toString(),
       description: `Pay ${invoice.amount_usdc} USDC to the freelancer for this invoice${invoice.client_name ? ` (${invoice.client_name})` : ''}.`,
       label: `Pay ${invoice.amount_usdc} USDC`,
@@ -204,7 +204,7 @@ export async function POST(
       fields: {
         type: 'transaction',
         transaction,
-        message: `Pay ${invoice.amount_usdc} USDC to invoice ${invoiceId.slice(0, 8)}… (PivLink).`,
+        message: `Pay ${invoice.amount_usdc} USDC to invoice ${invoiceId.slice(0, 8)}… (PivLinks).`,
       },
     });
 

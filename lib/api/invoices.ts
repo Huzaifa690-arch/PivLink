@@ -1,5 +1,5 @@
-import { getSupabase } from '@/lib/supabase/client';
-import type { Invoice } from '@/lib/supabase/types';
+import { getSupabase, getSupabaseServiceRole } from '@/lib/supabase/client';
+import type { Invoice, OnrampStatus, PaymentProvider } from '@/lib/supabase/types';
 import bcrypt from 'bcryptjs';
 import { sendStateChangeNotification } from '@/lib/api/state-notifications';
 
@@ -211,6 +211,80 @@ export async function checkFundingStatus(invoiceId: string): Promise<void> {
   if (!response.ok) {
     throw new Error('Failed to check funding status');
   }
+}
+
+export async function updateInvoiceOnramp(
+  invoiceId: string,
+  updates: Partial<
+    Pick<
+      Invoice,
+      | 'payment_provider'
+      | 'onramp_provider'
+      | 'onramp_session_id'
+      | 'onramp_status'
+      | 'onramp_fiat_amount'
+      | 'onramp_fiat_currency'
+      | 'onramp_destination_tx'
+      | 'onramp_error_code'
+      | 'onramp_error_message'
+      | 'funded_at'
+      | 'payment_tx_signature'
+      | 'payment_tx_timestamp'
+      | 'deposit_notification_tx'
+    >
+  >
+): Promise<void> {
+  const supabase = getSupabase();
+  const { error } = await supabase.from('invoices').update(updates).eq('id', invoiceId);
+  if (error) {
+    throw new Error(`Failed to update invoice onramp fields: ${error.message}`);
+  }
+}
+
+export async function getInvoiceByOnrampSession(sessionId: string): Promise<Invoice | null> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('onramp_session_id', sessionId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`Failed to fetch invoice by onramp session: ${error.message}`);
+  }
+  return data;
+}
+
+export async function recordStripeOnrampEvent(params: {
+  eventId: string;
+  invoiceId?: string | null;
+  sessionId?: string | null;
+  eventType: string;
+  payload: Record<string, unknown>;
+}): Promise<boolean> {
+  const supabase = getSupabaseServiceRole();
+  const { error } = await supabase.from('stripe_onramp_events').insert({
+    event_id: params.eventId,
+    invoice_id: params.invoiceId ?? null,
+    session_id: params.sessionId ?? null,
+    event_type: params.eventType,
+    payload_json: params.payload,
+  });
+  if (error) {
+    if (error.code === '23505') return false;
+    throw new Error(`Failed to record stripe onramp event: ${error.message}`);
+  }
+  return true;
+}
+
+export function isActiveOnrampStatus(status?: OnrampStatus | null): boolean {
+  return Boolean(status && !['fulfilled', 'failed', 'expired'].includes(status));
+}
+
+export async function markInvoicePaymentProvider(
+  invoiceId: string,
+  provider: PaymentProvider
+): Promise<void> {
+  await updateInvoiceOnramp(invoiceId, { payment_provider: provider });
 }
 
 export async function releaseFunds(invoiceId: string, password: string): Promise<void> {

@@ -21,7 +21,7 @@ export async function GET(
 
   const payload: ActionGetResponse = {
     type: 'action',
-    title: 'PivLink - Freelancer approval',
+    title: 'PivLinks - Freelancer approval',
     icon: new URL('/favicon.ico', origin).toString(),
     description: 'Approve escrow release as the freelancer.',
     label: 'Approve as freelancer',
